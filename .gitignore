@@ -1,0 +1,7 @@
+# 运行时产物
+current_app.txt
+*.log
+logs/
+
+# scrcpy 运行时缓存
+scrcpy/*.tmp
