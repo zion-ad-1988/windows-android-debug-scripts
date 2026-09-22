@@ -10,6 +10,25 @@ Add-Type -AssemblyName WindowsBase
 Add-Type -AssemblyName Microsoft.VisualBasic
 Add-Type -AssemblyName System.Windows.Forms
 
+# 注入 Windows 原生深色窗口标题栏 (DWM)
+$dwmCode = @"
+using System;
+using System.Runtime.InteropServices;
+public class DwmTheme {
+    [DllImport("dwmapi.dll", PreserveSig = true)]
+    public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+    public static void EnableDark(IntPtr hwnd) {
+        try {
+            int val = 1;
+            DwmSetWindowAttribute(hwnd, 20, ref val, sizeof(int));
+            DwmSetWindowAttribute(hwnd, 19, ref val, sizeof(int));
+        } catch {}
+    }
+}
+"@
+Add-Type -TypeDefinition $dwmCode -ErrorAction SilentlyContinue
+
+
 $preset1 = 'com.one.bp_tracker'
 $preset2 = 'com.smartreader.simple.pdf'
 $preset3 = 'com.smartbar.qrcreator'
@@ -397,43 +416,136 @@ function Show-FileManagerWindow($dev) {
     $explorerXaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="$($dev.Model) - 文件管理器 [$($dev.TypeStr)]" Height="680" Width="960"
-        WindowStartupLocation="CenterScreen" Background="#F8FAFC"
+        Title="$($dev.Model) - 远程文件管理器 [$($dev.TypeStr)]" Height="720" Width="1000"
+        WindowStartupLocation="CenterScreen" Background="#0B0F19"
         FontFamily="Segoe UI, Microsoft YaHei">
     <Window.Resources>
         <Style TargetType="Button">
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Height" Value="32"/>
-            <Setter Property="Margin" Value="2"/>
-            <Setter Property="Background" Value="#FFFFFF"/>
-            <Setter Property="Foreground" Value="#1E293B"/>
-            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+            <Setter Property="Margin" Value="3,2,3,2"/>
+            <Setter Property="Background" Value="#161F30"/>
+            <Setter Property="Foreground" Value="#F8FAFC"/>
+            <Setter Property="BorderBrush" Value="#26334D"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Padding" Value="8,0,8,0"/>
+            <Setter Property="Padding" Value="10,0,10,0"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border Name="border" Background="{TemplateBinding Background}" 
                                 BorderBrush="{TemplateBinding BorderBrush}" 
                                 BorderThickness="{TemplateBinding BorderThickness}" 
-                                CornerRadius="4" Padding="{TemplateBinding Padding}">
+                                CornerRadius="5" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#E2E8F0"/>
+                                <Setter TargetName="border" Property="Background" Value="#223049"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#3E517A"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#CBD5E1"/>
+                                <Setter TargetName="border" Property="Background" Value="#121B2B"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#38BDF8"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <Style x:Key="SuccessButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="#059669"/>
+            <Setter Property="BorderBrush" Value="#047857"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Name="border" Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}" 
+                                BorderThickness="{TemplateBinding BorderThickness}" 
+                                CornerRadius="5" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#10B981"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#34D399"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#047857"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="#0284C7"/>
+            <Setter Property="BorderBrush" Value="#0369A1"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Name="border" Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}" 
+                                BorderThickness="{TemplateBinding BorderThickness}" 
+                                CornerRadius="5" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#38BDF8"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#7DD3FC"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#0369A1"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="#BE123C"/>
+            <Setter Property="BorderBrush" Value="#9F1239"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Name="border" Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}" 
+                                BorderThickness="{TemplateBinding BorderThickness}" 
+                                CornerRadius="5" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#E11D48"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#FB7185"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#9F1239"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="{x:Type GridViewColumnHeader}">
+            <Setter Property="Background" Value="#161F30"/>
+            <Setter Property="Foreground" Value="#94A3B8"/>
+            <Setter Property="BorderBrush" Value="#26334D"/>
+            <Setter Property="BorderThickness" Value="0,0,1,1"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
     </Window.Resources>
-    <Grid Margin="12">
+    <Grid Margin="14">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -443,58 +555,83 @@ function Show-FileManagerWindow($dev) {
         </Grid.RowDefinitions>
 
         <!-- 快捷路径导航栏 -->
-        <WrapPanel Grid.Row="0" Margin="0,0,0,6">
-            <Button Name="NavUp" Content="⬅ 返回上级"/>
-            <Button Name="NavRefresh" Content="🔄 刷新目录"/>
-            <Button Name="NavSdcard" Content="🏠 内部存储 (/storage/emulated/0)"/>
-            <Button Name="NavDocuments" Content="📄 文档 (Documents)"/>
-            <Button Name="NavDownload" Content="📥 下载 (Download)"/>
-            <Button Name="NavDCIM" Content="📷 相册 (DCIM)"/>
-            <Button Name="NavPictures" Content="🖼 图片 (Pictures)"/>
-            <Button Name="NavRoot" Content="📁 系统根目录 (/)"/>
-        </WrapPanel>
+        <Border Grid.Row="0" Background="#161F30" CornerRadius="6" Padding="8,4" Margin="0,0,0,8" BorderBrush="#26334D" BorderThickness="1">
+            <WrapPanel>
+                <Button Name="NavUp" Content="⬅ 返回上级"/>
+                <Button Name="NavRefresh" Content="🔄 刷新目录"/>
+                <Button Name="NavSdcard" Content="🏠 内部存储 (/sdcard)"/>
+                <Button Name="NavDocuments" Content="📄 文档 (Documents)"/>
+                <Button Name="NavDownload" Content="📥 下载 (Download)"/>
+                <Button Name="NavDCIM" Content="📷 相册 (DCIM)"/>
+                <Button Name="NavPictures" Content="🖼 图片 (Pictures)"/>
+                <Button Name="NavRoot" Content="📁 系统根目录 (/)"/>
+            </WrapPanel>
+        </Border>
 
         <!-- 路径输入栏与搜索筛选 -->
-        <Grid Grid.Row="1" Margin="0,0,0,6">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="200"/>
-            </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="当前路径：" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,4,0" Foreground="#334155"/>
-            <TextBox Grid.Column="1" Name="TxtCurrentPath" Height="30" VerticalContentAlignment="Center" Padding="6,0,6,0" FontSize="13" BorderBrush="#CBD5E1"/>
-            <Button Grid.Column="2" Name="BtnGoPath" Content="前往" Width="55" Margin="4,0,8,0" Background="#2563EB" Foreground="#FFFFFF" BorderBrush="#1D4ED8"/>
-            <TextBox Grid.Column="3" Name="TxtSearch" Height="30" VerticalContentAlignment="Center" Padding="6,0,6,0" FontSize="12" BorderBrush="#CBD5E1" ToolTip="输入关键字实时筛选当前目录"/>
-        </Grid>
+        <Border Grid.Row="1" Background="#161F30" CornerRadius="6" Padding="8" Margin="0,0,0,8" BorderBrush="#26334D" BorderThickness="1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="220"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="当前路径：" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,6,0" Foreground="#94A3B8"/>
+                <TextBox Grid.Column="1" Name="TxtCurrentPath" Height="30" VerticalContentAlignment="Center" Padding="8,0" FontSize="13" Background="#0B0F19" Foreground="#F8FAFC" BorderBrush="#26334D" CaretBrush="#38BDF8"/>
+                <Button Grid.Column="2" Name="BtnGoPath" Style="{StaticResource PrimaryButton}" Content="前往" Width="60" Margin="6,0,8,0"/>
+                <TextBox Grid.Column="3" Name="TxtSearch" Height="30" VerticalContentAlignment="Center" Padding="8,0" FontSize="12" Background="#0B0F19" Foreground="#F8FAFC" BorderBrush="#26334D" CaretBrush="#38BDF8" ToolTip="输入关键字实时筛选当前目录"/>
+            </Grid>
+        </Border>
 
         <!-- 文件操作工具栏 -->
-        <WrapPanel Grid.Row="2" Margin="0,0,0,6">
-            <Button Name="BtnUpload" Content="📤 上传多选文件" Background="#F0FDF4" Foreground="#166534" BorderBrush="#BBF7D0"/>
-            <Button Name="BtnDownload" Content="📥 批量导出到电脑" Background="#EFF6FF" Foreground="#1E40AF" BorderBrush="#BFDBFE"/>
-            <Button Name="BtnNewFolder" Content="➕ 新建文件夹"/>
-            <Button Name="BtnRename" Content="✏ 重命名"/>
-            <Button Name="BtnDelete" Content="🗑 删除选中项" Background="#FEF2F2" Foreground="#991B1B" BorderBrush="#FECACA"/>
-            <Button Name="BtnCopyPath" Content="📋 复制完整路径"/>
-            <TextBlock Text="💡 支持电脑文件直接拖入导入，支持选中项拖出导出，支持 Ctrl/Shift/Ctrl+A 多选" FontSize="11" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="#64748B"/>
-        </WrapPanel>
+        <Border Grid.Row="2" Background="#161F30" CornerRadius="6" Padding="8,4" Margin="0,0,0,8" BorderBrush="#26334D" BorderThickness="1">
+            <WrapPanel VerticalAlignment="Center">
+                <Button Name="BtnUpload" Style="{StaticResource SuccessButton}" Content="📤 上传多选文件"/>
+                <Button Name="BtnDownload" Style="{StaticResource PrimaryButton}" Content="📥 批量导出到电脑"/>
+                <Button Name="BtnNewFolder" Content="➕ 新建文件夹"/>
+                <Button Name="BtnRename" Content="✏ 重命名"/>
+                <Button Name="BtnDelete" Style="{StaticResource DangerButton}" Content="🗑 删除选中项"/>
+                <Button Name="BtnCopyPath" Content="📋 复制完整路径"/>
+                <TextBlock Text="💡 支持从电脑拖放文件导入，支持多选导出与删除" FontSize="11" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="#64748B"/>
+            </WrapPanel>
+        </Border>
 
         <!-- 文件列表 -->
-        <ListView Grid.Row="3" Name="ListViewFiles" Background="#FFFFFF" BorderBrush="#CBD5E1" FontSize="12" SelectionMode="Extended" AllowDrop="True">
-            <ListView.View>
-                <GridView>
-                    <GridViewColumn Header="类型" Width="50" DisplayMemberBinding="{Binding Icon}"/>
-                    <GridViewColumn Header="名称" Width="400" DisplayMemberBinding="{Binding DisplayName}"/>
-                    <GridViewColumn Header="大小" Width="120" DisplayMemberBinding="{Binding Size}"/>
-                    <GridViewColumn Header="修改时间" Width="160" DisplayMemberBinding="{Binding Time}"/>
-                    <GridViewColumn Header="权限" Width="140" DisplayMemberBinding="{Binding Perms}"/>
-                </GridView>
-            </ListView.View>
-        </ListView>
+        <Border Grid.Row="3" Background="#070B14" CornerRadius="6" BorderBrush="#26334D" BorderThickness="1">
+            <ListView Name="ListViewFiles" Background="Transparent" BorderThickness="0" FontSize="12" Foreground="#F8FAFC" SelectionMode="Extended" AllowDrop="True">
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="{x:Type ListViewItem}">
+                        <Setter Property="Foreground" Value="#F8FAFC"/>
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="Padding" Value="6,4"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#161F30"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="#223049"/>
+                                <Setter Property="Foreground" Value="#38BDF8"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </ListView.ItemContainerStyle>
+                <ListView.View>
+                    <GridView>
+                        <GridViewColumn Header="类型" Width="50" DisplayMemberBinding="{Binding Icon}"/>
+                        <GridViewColumn Header="名称" Width="420" DisplayMemberBinding="{Binding DisplayName}"/>
+                        <GridViewColumn Header="大小" Width="120" DisplayMemberBinding="{Binding Size}"/>
+                        <GridViewColumn Header="修改时间" Width="170" DisplayMemberBinding="{Binding Time}"/>
+                        <GridViewColumn Header="权限" Width="140" DisplayMemberBinding="{Binding Perms}"/>
+                    </GridView>
+                </ListView.View>
+            </ListView>
+        </Border>
 
         <!-- 底部状态栏 -->
-        <Border Grid.Row="4" Background="#E2E8F0" CornerRadius="4" Padding="10,6,10,6" Margin="0,6,0,0">
-            <TextBlock Name="TxtStatusBar" Text="正在读取目录..." FontSize="12" Foreground="#475569"/>
+        <Border Grid.Row="4" Background="#121B2B" CornerRadius="4" Padding="10,6" Margin="0,6,0,0" BorderBrush="#26334D" BorderThickness="1">
+            <TextBlock Name="TxtStatusBar" Text="正在读取目录..." FontSize="12" Foreground="#94A3B8"/>
         </Border>
     </Grid>
 </Window>
@@ -502,6 +639,14 @@ function Show-FileManagerWindow($dev) {
 
     $reader = [System.Xml.XmlReader]::Create([System.IO.StringReader]::new($explorerXaml))
     $explorerWin = [System.Windows.Markup.XamlReader]::Load($reader)
+
+    $explorerWin.Add_SourceInitialized({
+        try {
+            $helper = New-Object System.Windows.Interop.WindowInteropHelper($explorerWin)
+            [DwmTheme]::EnableDark($helper.Handle)
+        } catch {}
+    })
+
 
     $navUp = $explorerWin.FindName('NavUp')
     $navRefresh = $explorerWin.FindName('NavRefresh')
@@ -791,46 +936,20 @@ function Show-FileManagerWindow($dev) {
 [xml]$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Android 设备调试与控制控制台" Height="780" Width="1020"
-        WindowStartupLocation="CenterScreen" Background="#F1F5F9"
+        Title="Android 调试与设备控制工作室 · Pro Studio" Height="820" Width="1060" MinHeight="680" MinWidth="960"
+        WindowStartupLocation="CenterScreen" Background="#0B0F19"
         FontFamily="Segoe UI, Microsoft YaHei">
     <Window.Resources>
+        <!-- 全局圆角平滑按钮样式 -->
         <Style TargetType="Button">
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Height" Value="38"/>
-            <Setter Property="Margin" Value="4,4,4,4"/>
-            <Setter Property="Background" Value="#FFFFFF"/>
-            <Setter Property="Foreground" Value="#1E293B"/>
-            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Margin" Value="2,3,2,3"/>
+            <Setter Property="Background" Value="#1A253A"/>
+            <Setter Property="Foreground" Value="#F8FAFC"/>
+            <Setter Property="BorderBrush" Value="#26334D"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border Name="border" Background="{TemplateBinding Background}" 
-                                BorderBrush="{TemplateBinding BorderBrush}" 
-                                BorderThickness="{TemplateBinding BorderThickness}" 
-                                CornerRadius="6" Padding="10,0,10,0">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#E2E8F0"/>
-                                <Setter TargetName="border" Property="BorderBrush" Value="#94A3B8"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#CBD5E1"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="Background" Value="#2563EB"/>
-            <Setter Property="Foreground" Value="#FFFFFF"/>
-            <Setter Property="BorderBrush" Value="#1D4ED8"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -838,15 +957,17 @@ function Show-FileManagerWindow($dev) {
                         <Border Name="border" Background="{TemplateBinding Background}" 
                                 BorderBrush="{TemplateBinding BorderBrush}" 
                                 BorderThickness="{TemplateBinding BorderThickness}" 
-                                CornerRadius="6" Padding="10,0,10,0">
+                                CornerRadius="5" Padding="8,0,8,0">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#1D4ED8"/>
+                                <Setter TargetName="border" Property="Background" Value="#263752"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#3E517A"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#1E40AF"/>
+                                <Setter TargetName="border" Property="Background" Value="#121A29"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#38BDF8"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -854,30 +975,135 @@ function Show-FileManagerWindow($dev) {
             </Setter>
         </Style>
 
-        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="Background" Value="#EF4444"/>
+        <!-- 天蓝高亮核心主按键 -->
+        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="#0284C7"/>
+            <Setter Property="BorderBrush" Value="#0369A1"/>
             <Setter Property="Foreground" Value="#FFFFFF"/>
-            <Setter Property="BorderBrush" Value="#DC2626"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border Name="border" Background="{TemplateBinding Background}" 
                                 BorderBrush="{TemplateBinding BorderBrush}" 
                                 BorderThickness="{TemplateBinding BorderThickness}" 
-                                CornerRadius="6" Padding="10,0,10,0">
+                                CornerRadius="5" Padding="10,0,10,0">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#DC2626"/>
+                                <Setter TargetName="border" Property="Background" Value="#38BDF8"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#7DD3FC"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#B91C1C"/>
+                                <Setter TargetName="border" Property="Background" Value="#0369A1"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+        </Style>
+
+        <!-- 翡翠绿成功/重要功能按键 -->
+        <Style x:Key="SuccessButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="#059669"/>
+            <Setter Property="BorderBrush" Value="#047857"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Name="border" Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}" 
+                                BorderThickness="{TemplateBinding BorderThickness}" 
+                                CornerRadius="5" Padding="10,0,10,0">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#10B981"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#34D399"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#047857"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 玫瑰红危险按键 -->
+        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="#BE123C"/>
+            <Setter Property="BorderBrush" Value="#9F1239"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Name="border" Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}" 
+                                BorderThickness="{TemplateBinding BorderThickness}" 
+                                CornerRadius="5" Padding="10,0,10,0">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#E11D48"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#FB7185"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#9F1239"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 预设标签按键 -->
+        <Style x:Key="PresetButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="#121B2B"/>
+            <Setter Property="BorderBrush" Value="#263752"/>
+            <Setter Property="Foreground" Value="#7DD3FC"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Name="border" Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}" 
+                                BorderThickness="{TemplateBinding BorderThickness}" 
+                                CornerRadius="5" Padding="8,0,8,0">
+                            <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#1C2A42"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#38BDF8"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#0C1320"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 暗黑输入框 -->
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="#0B0F19"/>
+            <Setter Property="Foreground" Value="#F8FAFC"/>
+            <Setter Property="BorderBrush" Value="#26334D"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CaretBrush" Value="#38BDF8"/>
+            <Setter Property="Padding" Value="8,4,8,4"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="#121B2B"/>
+            <Setter Property="Foreground" Value="#000000"/>
+            <Setter Property="BorderBrush" Value="#26334D"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,4"/>
         </Style>
     </Window.Resources>
 
@@ -886,25 +1112,27 @@ function Show-FileManagerWindow($dev) {
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="180"/>
+            <RowDefinition Height="185"/>
         </Grid.RowDefinitions>
 
         <!-- 顶部设备信息与切换栏 -->
-        <Border Grid.Row="0" Background="#FFFFFF" CornerRadius="8" Padding="14" Margin="0,0,0,12" BorderBrush="#E2E8F0" BorderThickness="1">
+        <Border Grid.Row="0" Background="#161F30" CornerRadius="8" Padding="14,10" Margin="0,0,0,10" BorderBrush="#26334D" BorderThickness="1">
             <Grid>
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="当前设备：" FontWeight="Bold" FontSize="14" VerticalAlignment="Center" Foreground="#334155"/>
-                <ComboBox Grid.Column="1" Name="CmbDevices" Margin="10,0,10,0" Height="36" FontSize="13" VerticalContentAlignment="Center" Background="#F8FAFC"/>
-                <Button Grid.Column="2" Name="BtnRefreshDevices" Content="刷新设备列表" Width="130" Height="36"/>
+                <TextBlock Grid.Column="0" Text="◈" FontSize="16" FontWeight="Bold" Foreground="#38BDF8" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBlock Grid.Column="1" Text="当前活动设备:" FontWeight="Bold" FontSize="13" VerticalAlignment="Center" Foreground="#F8FAFC" Margin="0,0,10,0"/>
+                <ComboBox Grid.Column="2" Name="CmbDevices" Margin="0,0,10,0" Height="36" FontSize="13" VerticalContentAlignment="Center"/>
+                <Button Grid.Column="3" Name="BtnRefreshDevices" Content="🔄 刷新设备列表" Width="130" Height="36"/>
             </Grid>
         </Border>
 
         <!-- 当前应用状态栏 -->
-        <Border Grid.Row="1" Background="#FFFFFF" CornerRadius="8" Padding="14" Margin="0,0,0,12" BorderBrush="#E2E8F0" BorderThickness="1">
+        <Border Grid.Row="1" Background="#161F30" CornerRadius="8" Padding="14,10" Margin="0,0,0,10" BorderBrush="#26334D" BorderThickness="1">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
@@ -912,15 +1140,15 @@ function Show-FileManagerWindow($dev) {
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="前台应用：" FontWeight="Bold" FontSize="14" VerticalAlignment="Center" Foreground="#334155"/>
-                <TextBox Grid.Column="1" Name="TxtPackage" Height="34" Margin="10,0,10,0" FontSize="13" VerticalContentAlignment="Center" Padding="6,0,6,0" BorderBrush="#CBD5E1"/>
-                <Button Grid.Column="2" Name="BtnRefreshForeground" Content="抓取前台" Width="100" Height="34"/>
-                <Button Grid.Column="3" Name="BtnOpenApp" Style="{StaticResource PrimaryButton}" Content="打开应用" Width="100" Height="34"/>
+                <TextBlock Grid.Column="0" Text="前台监控包名:" FontWeight="Bold" FontSize="13" VerticalAlignment="Center" Foreground="#F8FAFC" Margin="0,0,10,0"/>
+                <TextBox Grid.Column="1" Name="TxtPackage" Height="34" Margin="0,0,10,0" FontSize="13" VerticalContentAlignment="Center"/>
+                <Button Grid.Column="2" Name="BtnRefreshForeground" Content="🔍 抓取前台" Width="105" Height="34" Margin="0,0,8,0"/>
+                <Button Grid.Column="3" Name="BtnOpenApp" Style="{StaticResource PrimaryButton}" Content="🚀 打开应用" Width="105" Height="34"/>
             </Grid>
         </Border>
 
         <!-- 核心功能按钮区（卡片网格分类） -->
-        <Grid Grid.Row="2" Margin="0,0,0,12">
+        <Grid Grid.Row="2" Margin="0,0,0,10">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="*"/>
@@ -928,76 +1156,103 @@ function Show-FileManagerWindow($dev) {
             </Grid.ColumnDefinitions>
 
             <!-- 列1：应用管理 -->
-            <Border Grid.Column="0" Background="#FFFFFF" CornerRadius="8" Padding="14" Margin="0,0,8,0" BorderBrush="#E2E8F0" BorderThickness="1">
+            <Border Grid.Column="0" Background="#161F30" CornerRadius="8" Padding="14" Margin="0,0,5,0" BorderBrush="#26334D" BorderThickness="1">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel>
-                        <TextBlock Text="应用管理" FontSize="15" FontWeight="Bold" Foreground="#0F172A" Margin="4,0,0,10"/>
-                        <Button Name="BtnClearApp" Content="清空应用数据"/>
-                        <Button Name="BtnKillApp" Content="杀死当前应用"/>
-                        <Button Name="BtnUninstallApp" Style="{StaticResource DangerButton}" Content="卸载当前应用"/>
-                        
-                        <TextBlock Text="预设包名快速切换" FontSize="13" FontWeight="SemiBold" Foreground="#64748B" Margin="4,12,0,4"/>
-                        <Button Name="BtnPreset1" Content="1. 血压计 (bp_tracker)"/>
-                        <Button Name="BtnPreset2" Content="2. PDF阅读 (simple.pdf)"/>
-                        <Button Name="BtnPreset3" Content="3. 橙色QR (qrcreator)"/>
-                        <Button Name="BtnPreset4" Content="4. 绿色QR (qrcode)"/>
-                        <Button Name="BtnPreset5" Content="5. 紫色QR (purple)"/>
+                        <DockPanel Margin="2,0,2,10">
+                            <Border Background="#121B2B" CornerRadius="4" Padding="5,2" Margin="0,0,6,0">
+                                <TextBlock Text="APP" FontSize="10" FontWeight="Bold" Foreground="#A78BFA"/>
+                            </Border>
+                            <TextBlock Text="应用生命周期管理" FontSize="14" FontWeight="Bold" Foreground="#F8FAFC" VerticalAlignment="Center"/>
+                        </DockPanel>
+
+                        <Button Name="BtnKillApp" Style="{StaticResource DangerButton}" Content="⏹ 杀死当前应用进程"/>
+                        <Button Name="BtnClearApp" Content="🧹 清空当前应用数据"/>
+                        <Button Name="BtnUninstallApp" Style="{StaticResource DangerButton}" Content="🗑 卸载当前应用"/>
+
+                        <Border Height="1" Background="#26334D" Margin="2,14,2,10"/>
+                        <TextBlock Text="常用预设包名快速切换" FontSize="12" FontWeight="SemiBold" Foreground="#94A3B8" Margin="4,0,0,6"/>
+                        <Button Name="BtnPreset1" Style="{StaticResource PresetButton}" Content="1. 血压计 (com.one.bp_tracker)"/>
+                        <Button Name="BtnPreset2" Style="{StaticResource PresetButton}" Content="2. PDF阅读 (smartreader.simple.pdf)"/>
+                        <Button Name="BtnPreset3" Style="{StaticResource PresetButton}" Content="3. 橙色QR (smartbar.qrcreator)"/>
+                        <Button Name="BtnPreset4" Style="{StaticResource PresetButton}" Content="4. 绿色QR (quickscan.qrcode)"/>
+                        <Button Name="BtnPreset5" Style="{StaticResource PresetButton}" Content="5. 紫色QR (simplescan.qrcode.purple)"/>
                     </StackPanel>
                 </ScrollViewer>
             </Border>
 
-            <!-- 列2：无线与屏幕镜像控制 -->
-            <Border Grid.Column="1" Background="#FFFFFF" CornerRadius="8" Padding="14" Margin="4,0,4,0" BorderBrush="#E2E8F0" BorderThickness="1">
+            <!-- 列2：屏幕与文件管理 -->
+            <Border Grid.Column="1" Background="#161F30" CornerRadius="8" Padding="14" Margin="3,0,3,0" BorderBrush="#26334D" BorderThickness="1">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel>
-                        <TextBlock Text="屏幕与文件管理" FontSize="15" FontWeight="Bold" Foreground="#0F172A" Margin="4,0,0,10"/>
-                        <Button Name="BtnOpenFileManager" Style="{StaticResource PrimaryButton}" Content="📁 打开文件管理器 (File Explorer)"/>
-                        <Button Name="BtnStartMirror" Content="🖥 开始镜像 (Start Mirroring)"/>
-                        <Button Name="BtnTurnOffCurrent" Content="熄灭当前屏幕 (保持控制)"/>
-                        <Button Name="BtnTurnOffAll" Content="熄灭所有屏幕 (保持控制)"/>
-                        <Button Name="BtnEnableWireless" Content="开启无线调试 (端口5555)"/>
+                        <DockPanel Margin="2,0,2,10">
+                            <Border Background="#121B2B" CornerRadius="4" Padding="5,2" Margin="0,0,6,0">
+                                <TextBlock Text="DEV" FontSize="10" FontWeight="Bold" Foreground="#34D399"/>
+                            </Border>
+                            <TextBlock Text="屏幕镜像与文件管理" FontSize="14" FontWeight="Bold" Foreground="#F8FAFC" VerticalAlignment="Center"/>
+                        </DockPanel>
 
-                        <TextBlock Text="Firebase 与 系统调试" FontSize="13" FontWeight="SemiBold" Foreground="#64748B" Margin="4,12,0,4"/>
-                        <Button Name="BtnEnableFirebase" Content="开启 Firebase 调试"/>
-                        <Button Name="BtnDisableFirebase" Content="关闭 Firebase 调试"/>
+                        <Button Name="BtnOpenFileManager" Style="{StaticResource SuccessButton}" Content="📁 打开文件管理器 (Explorer)"/>
+                        <Button Name="BtnStartMirror" Style="{StaticResource PrimaryButton}" Content="🖥 启动手机屏幕镜像 (Scrcpy)"/>
+                        <Button Name="BtnTurnOffCurrent" Content="🌑 熄灭当前屏幕 (保持调试控制)"/>
+                        <Button Name="BtnTurnOffAll" Content="🌑 熄灭所有连接屏幕"/>
+
+                        <Border Height="1" Background="#26334D" Margin="2,14,2,10"/>
+                        <TextBlock Text="网络与分析控制" FontSize="12" FontWeight="SemiBold" Foreground="#94A3B8" Margin="4,0,0,6"/>
+                        <Button Name="BtnEnableWireless" Content="📶 开启无线调试 (端口 5555)"/>
+                        <Button Name="BtnEnableFirebase" Content="🔥 开启 Firebase 统计调试"/>
+                        <Button Name="BtnDisableFirebase" Content="❄ 关闭 Firebase 统计调试"/>
                     </StackPanel>
                 </ScrollViewer>
             </Border>
 
             <!-- 列3：日志、时间与商店工具 -->
-            <Border Grid.Column="2" Background="#FFFFFF" CornerRadius="8" Padding="14" Margin="8,0,0,0" BorderBrush="#E2E8F0" BorderThickness="1">
+            <Border Grid.Column="2" Background="#161F30" CornerRadius="8" Padding="14" Margin="5,0,0,0" BorderBrush="#26334D" BorderThickness="1">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel>
-                        <TextBlock Text="日志与时间工具" FontSize="15" FontWeight="Bold" Foreground="#0F172A" Margin="4,0,0,10"/>
-                        <Button Name="BtnAppLog" Content="开启应用日志调试 (PID)"/>
-                        <Button Name="BtnGlobalLog" Content="开启全局日志调试"/>
-                        <Button Name="BtnSetTodayTime" Content="修改当天时间 (HHMM)"/>
-                        <Button Name="BtnSetFullTime" Content="修改完整时间 (年月日时分)"/>
-                        <Button Name="BtnRestoreAutoTime" Content="🔄 恢复网络自动时间"/>
+                        <DockPanel Margin="2,0,2,10">
+                            <Border Background="#121B2B" CornerRadius="4" Padding="5,2" Margin="0,0,6,0">
+                                <TextBlock Text="TOOL" FontSize="10" FontWeight="Bold" Foreground="#38BDF8"/>
+                            </Border>
+                            <TextBlock Text="日志诊断与扩展工具" FontSize="14" FontWeight="Bold" Foreground="#F8FAFC" VerticalAlignment="Center"/>
+                        </DockPanel>
 
-                        <TextBlock Text="谷歌商店与浏览器" FontSize="13" FontWeight="SemiBold" Foreground="#64748B" Margin="4,12,0,4"/>
-                        <Button Name="BtnOpenPlayStore" Content="打开 Play Store"/>
-                        <Button Name="BtnClearPlayCache" Content="清除 Play Store 缓存"/>
-                        <Button Name="BtnClearPlayData" Content="清除 Play Store 数据"/>
-                        <Button Name="BtnOpenBrowserUrl" Content="默认浏览器打开链接"/>
+                        <Button Name="BtnAppLog" Content="📑 开启应用专属日志 (PID 抓取)"/>
+                        <Button Name="BtnGlobalLog" Content="🌐 开启系统全局 Logcat 抓取"/>
+                        <Button Name="BtnRestoreAutoTime" Style="{StaticResource SuccessButton}" Content="🔄 恢复网络自动时间 (精确校准)"/>
+                        <Button Name="BtnSetTodayTime" Content="⏱ 修改当天时间 (HHMM 格式)"/>
+                        <Button Name="BtnSetFullTime" Content="📅 修改完整时间 (年月日时分)"/>
+
+                        <Border Height="1" Background="#26334D" Margin="2,14,2,10"/>
+                        <TextBlock Text="谷歌商店与网络环境" FontSize="12" FontWeight="SemiBold" Foreground="#94A3B8" Margin="4,0,0,6"/>
+                        <Button Name="BtnOpenPlayStore" Content="🛒 打开 Google Play Store"/>
+                        <Button Name="BtnClearPlayCache" Content="🧹 清除 Play Store 缓存"/>
+                        <Button Name="BtnClearPlayData" Content="💣 清除 Play Store 应用数据"/>
+                        <Button Name="BtnOpenBrowserUrl" Content="🌍 默认浏览器打开指定链接"/>
                     </StackPanel>
                 </ScrollViewer>
             </Border>
         </Grid>
 
         <!-- 底部日志控制台输出面板 -->
-        <Border Grid.Row="3" Background="#0F172A" CornerRadius="8" Padding="12" BorderBrush="#334155" BorderThickness="1">
+        <Border Grid.Row="3" Background="#070B14" CornerRadius="8" Padding="12" BorderBrush="#26334D" BorderThickness="1">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
                 <Grid Grid.Row="0" Margin="0,0,0,6">
-                    <TextBlock Text="执行状态与输出日志" FontWeight="Bold" FontSize="12" Foreground="#94A3B8"/>
-                    <Button Name="BtnClearLog" Content="清空输出" Width="70" Height="22" FontSize="11" HorizontalAlignment="Right" Background="#1E293B" Foreground="#94A3B8" BorderBrush="#334155" Margin="0"/>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="❯" FontWeight="Bold" FontSize="12" Foreground="#38BDF8" Margin="0,0,6,0"/>
+                        <TextBlock Text="控制台执行输出 (LOGCAT / STATUS)" FontWeight="Bold" FontSize="12" Foreground="#94A3B8"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Name="BtnCopyLog" Content="复制日志" Width="70" Height="24" FontSize="11" Background="#161F30" Foreground="#94A3B8" BorderBrush="#26334D" Margin="0,0,6,0"/>
+                        <Button Name="BtnClearLog" Content="清空输出" Width="70" Height="24" FontSize="11" Background="#161F30" Foreground="#94A3B8" BorderBrush="#26334D" Margin="0"/>
+                    </StackPanel>
                 </Grid>
                 <TextBox Grid.Row="1" Name="TxtLog" Background="Transparent" Foreground="#38BDF8" 
-                         FontFamily="Consolas, Cascadia Code, Courier New" FontSize="12"
+                         FontFamily="Cascadia Code, Consolas, Courier New" FontSize="12"
                          BorderThickness="0" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                          IsReadOnly="True"/>
             </Grid>
@@ -1008,6 +1263,15 @@ function Show-FileManagerWindow($dev) {
 
 $reader = [System.Xml.XmlReader]::Create([System.IO.StringReader]::new($xaml.OuterXml))
 $window = [System.Windows.Markup.XamlReader]::Load($reader)
+
+# 注入主窗口 Windows 原生深色标题栏
+$window.Add_SourceInitialized({
+    try {
+        $helper = New-Object System.Windows.Interop.WindowInteropHelper($window)
+        [DwmTheme]::EnableDark($helper.Handle)
+    } catch {}
+})
+
 
 # 获取 UI 控件
 $cmbDevices = $window.FindName('CmbDevices')
@@ -1096,6 +1360,17 @@ function Refresh-ForegroundApp {
 
 # 绑定事件
 $btnClearLog.Add_Click({ $txtLog.Clear() })
+
+$btnCopyLog = $window.FindName('BtnCopyLog')
+if ($btnCopyLog) {
+    $btnCopyLog.Add_Click({
+        if ($txtLog.Text) {
+            [System.Windows.Clipboard]::SetText($txtLog.Text)
+            Log '控制台日志已复制到系统剪贴板。'
+        }
+    })
+}
+
 
 $btnRefreshDevices.Add_Click({
     Refresh-DeviceList
