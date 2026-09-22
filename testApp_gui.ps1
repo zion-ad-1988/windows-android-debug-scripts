@@ -19,9 +19,21 @@ public class DwmTheme {
     public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
     public static void EnableDark(IntPtr hwnd) {
         try {
-            int val = 1;
-            DwmSetWindowAttribute(hwnd, 20, ref val, sizeof(int));
-            DwmSetWindowAttribute(hwnd, 19, ref val, sizeof(int));
+            int dark = 1;
+            DwmSetWindowAttribute(hwnd, 20, ref dark, sizeof(int));
+            DwmSetWindowAttribute(hwnd, 19, ref dark, sizeof(int));
+
+            // 标题栏背景 = 主窗口背景 #0B0F19 (COLORREF 0x00BBGGRR)
+            int caption = 0x00190F0B;
+            DwmSetWindowAttribute(hwnd, 35, ref caption, sizeof(int));
+
+            // 标题栏文字 = 主文字色 #F8FAFC
+            int text = 0x00FCFAF8;
+            DwmSetWindowAttribute(hwnd, 36, ref text, sizeof(int));
+
+            // 标题栏边框 = 卡片边框色 #26334D
+            int border = 0x004D3326;
+            DwmSetWindowAttribute(hwnd, 34, ref border, sizeof(int));
         } catch {}
     }
 }
