@@ -446,7 +446,6 @@ function Start-ScrcpyWindowProcess {
     )
 
     $baseDir = Split-Path -Parent $ScrcpyPath
-    $adbPath = Join-Path $baseDir 'adb.exe'
     $safeSerial = $Serial -replace '"', '' -replace '[\r\n]', ' '
     if (-not $WindowTitle) { $WindowTitle = $Serial }
     $safeTitle = $WindowTitle -replace '"', '' -replace '[\r\n]', ' '
@@ -460,45 +459,44 @@ function Start-ScrcpyWindowProcess {
     $psi.CreateNoWindow = $true
 
     $isElevated = Test-IsProcessElevated
+    $fallbackReason = ''
     if ($isElevated) {
         # Windows UIPI 禁止普通 Explorer 向管理员窗口拖放文件。
-        # 通过 Explorer 启动隐藏的 PowerShell 代理，让 scrcpy 回到标准桌面权限。
+        # 通过 Explorer 直接启动 scrcpy 快捷方式，使其与资源管理器处于同一标准权限层。
+        # 快捷方式无需中转 PowerShell，因此不会出现命令行黑框。
         try {
-            $escapedAdb = $adbPath.Replace("'", "''")
-            $escapedBase = $baseDir.Replace("'", "''")
-            $escapedExe = $ScrcpyPath.Replace("'", "''")
-            $escapedArgs = $argLine.Replace("'", "''")
-            $wrapperScript = @'
-$ErrorActionPreference = 'Stop'
-$env:ADB = '{0}'
-$env:PATH = '{1};' + $env:PATH
-$psi = New-Object System.Diagnostics.ProcessStartInfo
-$psi.FileName = '{2}'
-$psi.Arguments = '{3}'
-$psi.WorkingDirectory = '{1}'
-$psi.UseShellExecute = $false
-$psi.CreateNoWindow = $true
-[System.Diagnostics.Process]::Start($psi) | Out-Null
-'@ -f $escapedAdb, $escapedBase, $escapedExe, $escapedArgs
-
-            $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($wrapperScript))
+            $existing = @(Get-Process -Name scrcpy -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
             $shortcutPath = Join-Path $env:TEMP 'DroidOps-Scrcpy-Mirror.lnk'
             $wsh = New-Object -ComObject WScript.Shell
             $shortcut = $wsh.CreateShortcut($shortcutPath)
-            $shortcut.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-            $shortcut.Arguments = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ' + $encoded
+            $shortcut.TargetPath = $ScrcpyPath
+            $shortcut.Arguments = $argLine
             $shortcut.WorkingDirectory = $baseDir
-            $shortcut.WindowStyle = 7
+            $shortcut.IconLocation = $ScrcpyPath + ',0'
+            $shortcut.WindowStyle = 1
             $shortcut.Save()
 
             Start-Process -FilePath (Join-Path $env:SystemRoot 'explorer.exe') -ArgumentList ('"' + $shortcutPath + '"') | Out-Null
-            return [pscustomobject]@{
-                Success = $true
-                Mode = 'standard-shell'
-                Message = '镜像窗口已通过标准桌面权限启动，可直接拖入 APK 安装。'
+
+            # 确认镜像进程真正出现后再报告成功；失败则回退直接启动。
+            $started = $null
+            $deadline = (Get-Date).AddSeconds(3)
+            while ((Get-Date) -lt $deadline -and -not $started) {
+                $started = Get-Process -Name scrcpy -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Id -notin $existing -and $_.MainWindowHandle -ne 0 } |
+                    Select-Object -First 1
+                if (-not $started) { Start-Sleep -Milliseconds 100 }
             }
+            if ($started) {
+                return [pscustomobject]@{
+                    Success = $true
+                    Mode = 'standard-shell'
+                    Message = '镜像窗口已通过标准桌面权限启动，可直接拖入 APK 安装。'
+                }
+            }
+            $fallbackReason = '快捷方式未能拉起 scrcpy'
         } catch {
-            # 无法降权时仍启动镜像，并在界面中明确提示拖放限制。
+            $fallbackReason = $_.Exception.Message
         }
     }
 
@@ -506,7 +504,7 @@ $psi.CreateNoWindow = $true
         [System.Diagnostics.Process]::Start($psi) | Out-Null
         $mode = if ($isElevated) { 'elevated-fallback' } else { 'standard' }
         $message = if ($isElevated) {
-            '镜像窗口已启动，但当前为管理员权限；Windows 可能禁止拖入 APK，建议以普通权限启动 testApp 启动器。'
+            '镜像窗口已启动，但自动降权未成功；Windows 可能禁止拖入 APK。建议普通权限启动 testApp 启动器。诊断: ' + $fallbackReason
         } else {
             '镜像窗口已启动，可直接拖入 APK 安装。'
         }
