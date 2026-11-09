@@ -10,7 +10,8 @@
 windows-android-debug-scripts
 ├── testApp.bat          # 命令行版启动器（双击运行）
 ├── testApp.ps1          # 命令行版主脚本 / 22 项功能
-├── testApp_gui.bat      # 图形界面版启动器（双击运行）
+├── testApp_gui.vbs      # 图形界面版无控制台启动器（推荐）
+├── testApp_gui.bat      # 图形界面版兼容启动器（会闪一下控制台）
 ├── testApp_gui.ps1      # 图形界面版主脚本（WPF 控制台）
 ├── scrcpy/              # 随包携带的 adb / scrcpy 运行环境
 │   ├── adb.exe  AdbWinApi.dll  AdbWinUsbApi.dll  fastboot.exe
@@ -19,7 +20,7 @@ windows-android-debug-scripts
 ```
 
 1. 手机开启 **开发者选项 → USB 调试**，用数据线连接电脑，弹窗点「允许 USB 调试」。
-2. 双击 `testApp.bat`（命令行版）或 `testApp_gui.bat`（图形界面版）。
+2. 双击 `testApp.bat`（命令行版）或 `testApp_gui.vbs`（图形界面版，推荐，全程无控制台黑框）。`.bat` 版仍保留用于兼容，但 Windows 会在启动瞬间创建控制台窗口。
 3. 检测到多台设备时会让你选择；只有一台时自动选中。
 
 > `.bat` 启动器会先把 `scrcpy\` 加入 PATH，所以 `adb` / `scrcpy` 都直接用脚本自带的版本，不会和你系统里已装的冲突。
@@ -115,7 +116,8 @@ $preset5 = 'com.simplescan.qrcode.purple'
 | 时间修改失败 | 需 Android 8+ 支持 `time_detector`，或设备已装 Shizuku / 有 Root |
 | Play Store 清缓存无效 | 部分版本需 Root 才能清 `/data/data/com.android.vending`，脚本会自动降级并提示 |
 | 中文乱码 | 两个脚本已强制 UTF-8 输出；终端字体请选支持中文的（如微软雅黑、Cascadia） |
-| 拖 APK 到镜像窗口显示禁止图标 | Windows UIPI 不允许普通资源管理器向管理员权限窗口拖放。新版会检测到提权并自动以标准桌面权限启动 scrcpy；若仍受限，请普通双击 `testApp_gui.bat` / `testApp.bat`，不要选择“以管理员身份运行” |
+| 拖 APK 到镜像窗口显示禁止图标 | Windows UIPI 不允许普通资源管理器向管理员权限窗口拖放。新版会检测到提权并自动以标准桌面权限启动 scrcpy；若仍受限，请普通双击 `testApp_gui.vbs` / `testApp.bat`，不要选择“以管理员身份运行” |
+| 启动 GUI 时黑框一闪而过 | `.bat` 会由 Windows 创建控制台窗口，无法在批处理内部彻底隐藏。请使用 `testApp_gui.vbs`，或使用指向该 VBS 的桌面快捷方式 |
 
 ## scrcpy 与 Escrcpy
 
