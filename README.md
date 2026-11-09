@@ -33,7 +33,7 @@ windows-android-debug-scripts
 | 安卓设备 | Android 7.0+ 建议；时间修改依赖 `cmd time_detector`（Android 8+ 免 Root） |
 | 网络 | 仅无线调试、Firebase 相关功能需要 |
 
-无需单独安装 adb 或 scrcpy，仓库内已附带（scrcpy 5.0.1，adb 37.0.0）。
+无需单独安装 adb 或 scrcpy，仓库内已附带（scrcpy 5.0.1，adb 37.0.1，fastboot 37.0.1）。
 
 ## 命令行版（testApp.bat）
 
@@ -118,7 +118,7 @@ $preset5 = 'com.simplescan.qrcode.purple'
 
 ## scrcpy 与 Escrcpy
 
-`scrcpy/` 目录来自 [Genymobile/scrcpy](https://github.com/Genymobile/scrcpy)（Apache-2.0），版本 5.0.1；`adb.exe` / `fastboot.exe` 来自 Google Android Platform Tools。随包携带只是为了开箱即用，可自行替换为更新版本。scrcpy 的第三方许可证见 `scrcpy/LICENSE.txt`。
+`scrcpy/` 目录来自 [Genymobile/scrcpy](https://github.com/Genymobile/scrcpy)（Apache-2.0），版本 5.0.1；`adb.exe` / `fastboot.exe` 来自 Google Android Platform Tools，版本 37.0.1。随包携带只是为了开箱即用，可自行替换为更新版本。第三方许可证分别见 `scrcpy/LICENSE.txt` 与 `scrcpy/NOTICE.txt`。
 
 部分灭屏保活与镜像调用的参数约定参考了 [Escrcpy](https://github.com/viarotel-org/escrcpy)。Escrcpy 是独立项目，本仓库不包含其源码或构建产物，也不将其作为运行依赖。
 

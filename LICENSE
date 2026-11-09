@@ -24,4 +24,4 @@ SOFTWARE.
 
 Third-party components bundled in the scrcpy/ directory keep their own licenses:
 - scrcpy: Apache License 2.0 (https://github.com/Genymobile/scrcpy)
-- adb / fastboot (Android Platform Tools): Google / Android SDK terms
+- adb / fastboot (Android Platform Tools 37.0.1): Google / Android SDK terms, see scrcpy/NOTICE.txt
