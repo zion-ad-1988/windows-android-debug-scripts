@@ -230,6 +230,94 @@ function Init-ScrcpyEnv {
     }
 }
 
+function Test-IsProcessElevated {
+    try {
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+        return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch {
+        return $false
+    }
+}
+
+function Start-ScrcpyWindowProcess {
+    param(
+        [Parameter(Mandatory = $true)][string]$ScrcpyPath,
+        [Parameter(Mandatory = $true)][string]$Serial,
+        [string]$WindowTitle = ''
+    )
+
+    $baseDir = Split-Path -Parent $ScrcpyPath
+    $adbPath = Join-Path $baseDir 'adb.exe'
+    $safeSerial = $Serial -replace '"', '' -replace '[\r\n]', ' '
+    if (-not $WindowTitle) { $WindowTitle = $Serial }
+    $safeTitle = $WindowTitle -replace '"', '' -replace '[\r\n]', ' '
+    $argLine = '--serial="' + $safeSerial + '" --window-title="' + $safeTitle + '"'
+
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $ScrcpyPath
+    $psi.Arguments = $argLine
+    $psi.WorkingDirectory = $baseDir
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+
+    $isElevated = Test-IsProcessElevated
+    if ($isElevated) {
+        # Windows UIPI 禁止普通 Explorer 向管理员窗口拖放文件。
+        # 通过 Explorer 启动隐藏的 PowerShell 代理，让 scrcpy 回到标准桌面权限。
+        try {
+            $escapedAdb = $adbPath.Replace("'", "''")
+            $escapedBase = $baseDir.Replace("'", "''")
+            $escapedExe = $ScrcpyPath.Replace("'", "''")
+            $escapedArgs = $argLine.Replace("'", "''")
+            $wrapperScript = @'
+$ErrorActionPreference = 'Stop'
+$env:ADB = '{0}'
+$env:PATH = '{1};' + $env:PATH
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = '{2}'
+$psi.Arguments = '{3}'
+$psi.WorkingDirectory = '{1}'
+$psi.UseShellExecute = $false
+$psi.CreateNoWindow = $true
+[System.Diagnostics.Process]::Start($psi) | Out-Null
+'@ -f $escapedAdb, $escapedBase, $escapedExe, $escapedArgs
+
+            $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($wrapperScript))
+            $shortcutPath = Join-Path $env:TEMP 'DroidOps-Scrcpy-Mirror.lnk'
+            $wsh = New-Object -ComObject WScript.Shell
+            $shortcut = $wsh.CreateShortcut($shortcutPath)
+            $shortcut.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+            $shortcut.Arguments = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ' + $encoded
+            $shortcut.WorkingDirectory = $baseDir
+            $shortcut.WindowStyle = 7
+            $shortcut.Save()
+
+            Start-Process -FilePath (Join-Path $env:SystemRoot 'explorer.exe') -ArgumentList ('"' + $shortcutPath + '"') | Out-Null
+            return [pscustomobject]@{
+                Success = $true
+                Mode = 'standard-shell'
+                Message = '镜像窗口已通过标准桌面权限启动，可直接拖入 APK 安装。'
+            }
+        } catch {
+            # 无法降权时仍启动镜像，并在界面中明确提示拖放限制。
+        }
+    }
+
+    try {
+        [System.Diagnostics.Process]::Start($psi) | Out-Null
+        $mode = if ($isElevated) { 'elevated-fallback' } else { 'standard' }
+        $message = if ($isElevated) {
+            '镜像窗口已启动，但当前为管理员权限；Windows 可能禁止拖入 APK，建议以普通权限启动 testApp_gui.bat。'
+        } else {
+            '镜像窗口已启动，可直接拖入 APK 安装。'
+        }
+        return [pscustomobject]@{ Success = $true; Mode = $mode; Message = $message }
+    } catch {
+        return [pscustomobject]@{ Success = $false; Mode = 'failed'; Message = $_.Exception.Message }
+    }
+}
+
 function TurnOff-DeviceScreen([string]$serial) {
     $scrcpy = Get-ScrcpyPath
     if (-not $scrcpy) {
@@ -2050,7 +2138,7 @@ function Show-FileManagerWindow($dev) {
                             <TextBlock Text="远程文件管理"/>
                         </StackPanel>
                     </Button>
-                    <Button Name="BtnStartMirror" Style="{StaticResource HighlightSignalButton}" ToolTip="通过 Scrcpy 启动屏幕镜像">
+                    <Button Name="BtnStartMirror" Style="{StaticResource HighlightSignalButton}" ToolTip="通过 Scrcpy 启动屏幕镜像；可直接拖入 .apk 文件安装">
                         <StackPanel Orientation="Horizontal">
                             <Viewbox Width="14" Height="14" Margin="0,0,8,0"><Path Data="{StaticResource IcoMonitor}" Style="{StaticResource IcoPath}"/></Viewbox>
                             <TextBlock Text="启动屏幕镜像"/>
@@ -2508,18 +2596,12 @@ $btnStartMirror.Add_Click({
     if (-not $scrcpy) { Log '未找到 scrcpy 执行文件！'; return }
     Init-ScrcpyEnv
     $title = if ($dev.Model -and $dev.Model -ne 'unknown') { $dev.Model } else { $dev.Serial }
-    $argList = '--serial="' + $dev.Serial + '" --window-title="' + $title + '"'
-
-    try {
-        $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = $scrcpy
-        $psi.Arguments = $argList
-        $psi.UseShellExecute = $false
-        $psi.CreateNoWindow = $true
-        [System.Diagnostics.Process]::Start($psi) | Out-Null
-        Log ('手机镜像窗口已在前台启动 (设备: ' + $title + ')')
-    } catch {
-        Log ('启动镜像失败: ' + $_.Exception.Message)
+    $launch = Start-ScrcpyWindowProcess -ScrcpyPath $scrcpy -Serial $dev.Serial -WindowTitle $title
+    if ($launch.Success) {
+        Log ('手机镜像窗口已启动 (设备: ' + $title + ')')
+        Log $launch.Message
+    } else {
+        Log ('启动镜像失败: ' + $launch.Message)
     }
 })
 
@@ -2868,5 +2950,8 @@ if ($btnToggleTheme) {
 }
 
 # 初始化加载
+if (Test-IsProcessElevated) {
+    Log '当前工具以管理员权限运行；镜像窗口将自动通过标准桌面权限启动，以保留 APK 拖放安装。'
+}
 Refresh-DeviceList
 $window.ShowDialog() | Out-Null
