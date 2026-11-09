@@ -1,4 +1,7 @@
 @echo off
 setlocal
-set "PATH=%~dp0scrcpy;%PATH%"
-start "" powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0testApp_gui.ps1"
+cd /d "%~dp0"
+rem Route through the GUI-subsystem VBS launcher to avoid a console flash.
+start "" wscript.exe "%~dp0testApp_gui.vbs"
+endlocal
+exit /b 0
