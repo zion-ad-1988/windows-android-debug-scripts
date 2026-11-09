@@ -429,7 +429,7 @@ function Init-ScrcpyEnv {
 }
 
 function TurnOff-DeviceScreen([string]$serial) {
-    # 按照 Escrcpy helper 规范调用：
+    # 按照 Escrcpy helper 规范调用（https://github.com/viarotel-org/escrcpy）：
     # window.$preload.scrcpy.helper(device.id, '--turn-screen-off')
     # 即底层执行：scrcpy --serial="<serial>" --no-window --no-video --no-audio --turn-screen-off
     $scrcpy = Get-ScrcpyPath

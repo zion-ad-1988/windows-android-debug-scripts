@@ -116,9 +116,11 @@ $preset5 = 'com.simplescan.qrcode.purple'
 | Play Store 清缓存无效 | 部分版本需 Root 才能清 `/data/data/com.android.vending`，脚本会自动降级并提示 |
 | 中文乱码 | 两个脚本已强制 UTF-8 输出；终端字体请选支持中文的（如微软雅黑、Cascadia） |
 
-## scrcpy
+## scrcpy 与 Escrcpy
 
 `scrcpy/` 目录来自 [Genymobile/scrcpy](https://github.com/Genymobile/scrcpy)（Apache-2.0），版本 4.1；`adb.exe` / `fastboot.exe` 来自 Google Android Platform Tools。随包携带只是为了开箱即用，可自行替换为更新版本。
+
+部分灭屏保活与镜像调用的参数约定参考了 [Escrcpy](https://github.com/viarotel-org/escrcpy)。Escrcpy 是独立项目，本仓库不包含其源码或构建产物，也不将其作为运行依赖。
 
 ## 已知限制
 
@@ -137,3 +139,5 @@ MIT（`scrcpy/` 内的第三方组件遵循其各自许可证）。
 A Windows toolkit for daily Android debugging: double-click `testApp.bat` (CLI, 22 functions) or `testApp_gui.bat` (WPF GUI console) to clear app data, launch/kill/uninstall apps, capture logcat, change device time, manage the Play Store, enable wireless ADB (`tcpip 5555` + `connect`), mirror the screen and manage device files — all via the bundled `adb` and `scrcpy` (no installation required).
 
 Requirements: Windows 10/11, PowerShell 5.1, an Android device with USB debugging enabled.
+
+Related project: [Escrcpy](https://github.com/viarotel-org/escrcpy) — some screen-off and mirror helper conventions are referenced; Escrcpy is not bundled and is not a runtime dependency.
