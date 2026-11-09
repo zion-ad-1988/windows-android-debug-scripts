@@ -465,12 +465,17 @@ function Start-ScrcpyWindowProcess {
         # 通过 Explorer 直接启动 scrcpy 快捷方式，使其与资源管理器处于同一标准权限层。
         # 快捷方式无需中转 PowerShell，因此不会出现命令行黑框。
         try {
+            $vbsLauncher = Join-Path $baseDir 'scrcpy-noconsole.vbs'
+            if (-not (Test-Path -LiteralPath $vbsLauncher)) {
+                throw '缺少 scrcpy-noconsole.vbs'
+            }
+
             $existing = @(Get-Process -Name scrcpy -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
             $shortcutPath = Join-Path $env:TEMP 'DroidOps-Scrcpy-Mirror.lnk'
             $wsh = New-Object -ComObject WScript.Shell
             $shortcut = $wsh.CreateShortcut($shortcutPath)
-            $shortcut.TargetPath = $ScrcpyPath
-            $shortcut.Arguments = $argLine
+            $shortcut.TargetPath = Join-Path $env:SystemRoot 'System32\wscript.exe'
+            $shortcut.Arguments = '"' + $vbsLauncher + '" "--serial=' + $safeSerial + '" "--window-title=' + $safeTitle + '"'
             $shortcut.WorkingDirectory = $baseDir
             $shortcut.IconLocation = $ScrcpyPath + ',0'
             $shortcut.WindowStyle = 1
