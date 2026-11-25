@@ -97,6 +97,7 @@ $preset2 = 'com.smartreader.simple.pdf'
 $preset3 = 'com.smartbar.qrcreator'
 $preset4 = 'com.quickscan.qrcode'
 $preset5 = 'com.simplescan.qrcode.purple'
+$preset6 = 'com.easy.gallery.management'
 $playStorePackage = 'com.android.vending'
 
 # 文件管理器列表类型列矢量图标几何 (WPF Path mini-language, 24 viewBox, 见 visual-spec §7)
@@ -112,6 +113,21 @@ function Invoke-CmdText([string]$commandText) {
         Output = $output.TrimEnd()
         ExitCode = $LASTEXITCODE
     }
+}
+
+function ConvertTo-SortableOsVersion([string]$osText) {
+    if ($osText -and $osText -match '^(\d+(?:\.\d+)*)') {
+        $parts = $matches[1].Split('.')
+        $nums = @(0, 0, 0, 0)
+        for ($i = 0; $i -lt [Math]::Min($parts.Count, 4); $i++) {
+            $n = 0
+            if ([int]::TryParse($parts[$i], [ref]$n) -and $n -ge 0) {
+                $nums[$i] = $n
+            }
+        }
+        return [System.Version]::new($nums[0], $nums[1], $nums[2], $nums[3])
+    }
+    return [System.Version]::new(0, 0, 0, 0)
 }
 
 function Get-Devices {
@@ -134,8 +150,15 @@ function Get-Devices {
             Add-Member -InputObject $obj -NotePropertyName OS -NotePropertyValue $os
             Add-Member -InputObject $obj -NotePropertyName TypeStr -NotePropertyValue $typeStr
             Add-Member -InputObject $obj -NotePropertyName DisplayName -NotePropertyValue $displayName
+            Add-Member -InputObject $obj -MemberType ScriptMethod -Name ToString -Value { return $this.DisplayName } -Force
             $result += $obj
         }
+    }
+    if ($result.Count -gt 1) {
+        $result = @($result | Sort-Object `
+            @{ Expression = { ConvertTo-SortableOsVersion $_.OS }; Descending = $true }, `
+            @{ Expression = { $_.Model }; Descending = $false }, `
+            @{ Expression = { $_.DisplayName }; Descending = $false })
     }
     return ,$result
 }
@@ -166,28 +189,66 @@ function Get-AppVersion([string]$serial, [string]$pkg) {
     return 'unknown'
 }
 
-function Get-DeviceIp([string]$serial) {
+function Get-WirelessEndpointFromSerial([string]$serial) {
+    if ($serial -match '^(\d+\.\d+\.\d+\.\d+):(\d+)$') {
+        return [pscustomobject]@{
+            Ip   = $matches[1]
+            Port = [int]$matches[2]
+        }
+    }
+    return $null
+}
+
+function Test-ValidIPv4([string]$ipText) {
+    if (-not $ipText -or $ipText -notmatch '^\d{1,3}(?:\.\d{1,3}){3}$') {
+        return $false
+    }
+    $parsedIp = $null
+    if (-not [System.Net.IPAddress]::TryParse($ipText, [ref]$parsedIp)) {
+        return $false
+    }
+    return ($parsedIp.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork)
+}
+
+function Get-DeviceAllIps([string]$serial) {
+    $ips = @()
+    if (-not $serial) { return ,$ips }
+
     $lines = adb -s $serial shell "ip -o -4 addr show" 2>$null
     foreach ($line in $lines) {
         if ($line -match '\s(wlan\d*|eth\d*|ap\d*)\s+inet\s+(\d+\.\d+\.\d+\.\d+)/') {
-            return $matches[2]
+            $addr = $matches[2]
+            if ($addr -notin $ips) { $ips += $addr }
         }
     }
+    if ($ips.Count -gt 0) { return ,$ips }
+
     $ifconfigLines = adb -s $serial shell "ifconfig wlan0" 2>$null
     foreach ($line in $ifconfigLines) {
         if ($line -match 'inet\s+addr:\s*(\d+\.\d+\.\d+\.\d+)' -or $line -match 'inet\s+(\d+\.\d+\.\d+\.\d+)') {
-            return $matches[1]
+            $addr = $matches[1]
+            if ($addr -notin $ips) { $ips += $addr }
         }
     }
+    if ($ips.Count -gt 0) { return ,$ips }
+
     $routeLines = adb -s $serial shell "ip route" 2>$null
     foreach ($line in $routeLines) {
         if ($line -match 'dev\s+(?:wlan\d*|eth\d*)\s+.*src\s+(\d+\.\d+\.\d+\.\d+)') {
-            return $matches[1]
+            $addr = $matches[1]
+            if ($addr -notin $ips) { $ips += $addr }
         }
         if ($line -match 'src\s+(\d+\.\d+\.\d+\.\d+)\s+dev\s+(?:wlan\d*|eth\d*)') {
-            return $matches[1]
+            $addr = $matches[1]
+            if ($addr -notin $ips) { $ips += $addr }
         }
     }
+    return ,$ips
+}
+
+function Get-DeviceIp([string]$serial) {
+    $ips = Get-DeviceAllIps $serial
+    if ($ips.Count -gt 0) { return $ips[0] }
     return $null
 }
 
@@ -357,6 +418,7 @@ function TurnOff-DeviceScreen([string]$serial) {
 }
 
 function Set-DeviceTime([string]$serial, [string]$year, [string]$month, [string]$day, [string]$hour, [string]$minute) {
+    if ($hour -match '^[0-9]$') { $hour = '0' + $hour }
     try {
         $dt = [DateTime]::ParseExact(($year + '-' + $month + '-' + $day + ' ' + $hour + ':' + $minute + ':00'), 'yyyy-MM-dd HH:mm:ss', [System.Globalization.CultureInfo]::InvariantCulture)
     } catch {
@@ -1543,6 +1605,9 @@ function Show-FileManagerWindow($dev) {
                             <ContentPresenter x:Name="ContentSite" IsHitTestVisible="False"
                                               Content="{TemplateBinding SelectionBoxItem}"
                                               ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                              ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                              ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
+                                              ClipToBounds="True"
                                               Margin="10,0,30,0" VerticalAlignment="Center" HorizontalAlignment="Left">
                                 <TextBlock.Foreground>
                                     <DynamicResource ResourceKey="BrushTextPrimary"/>
@@ -1852,9 +1917,9 @@ function Show-FileManagerWindow($dev) {
 
         <!-- 预设目标按钮（双行展示） -->
         <Style x:Key="PresetButton" TargetType="Button">
-            <Setter Property="Height" Value="42"/>
+            <Setter Property="Height" Value="40"/>
             <Setter Property="Margin" Value="0,2,0,2"/>
-            <Setter Property="Padding" Value="10,0"/>
+            <Setter Property="Padding" Value="9,0"/>
             <Setter Property="Foreground" Value="{DynamicResource BrushTextPrimary}"/>
             <Setter Property="Background" Value="{DynamicResource BrushBtnBg}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource BrushBorderSoft}"/>
@@ -1865,7 +1930,43 @@ function Show-FileManagerWindow($dev) {
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border Name="border" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="5" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                            <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource BrushBtnHoverBg}"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="{DynamicResource BrushSignal}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource BrushSignal}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource BrushPanelBg}"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="border" Property="BorderBrush" Value="{DynamicResource BrushSignal}"/>
+                                <Setter TargetName="border" Property="BorderThickness" Value="2"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="border" Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 预设卡片右侧快捷操作按钮（打开 / 抓包） -->
+        <Style x:Key="PresetActionButton" TargetType="Button" BasedOn="{StaticResource PresetButton}">
+            <Setter Property="Margin" Value="4,0,0,0"/>
+            <Setter Property="Padding" Value="6,0"/>
+            <Setter Property="FontSize" Value="10.5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource BrushTextSecondary}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Name="border" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="5" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
@@ -1961,7 +2062,7 @@ function Show-FileManagerWindow($dev) {
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <ComboBox Name="CmbDevices" Grid.Column="0" Height="36" ToolTip="选择已连接的 ADB 设备"/>
+                            <ComboBox Name="CmbDevices" Grid.Column="0" Height="36" DisplayMemberPath="DisplayName" ToolTip="选择已连接的 ADB 设备"/>
                             <Button Name="BtnRefreshDevices" Grid.Column="1" Style="{StaticResource IconSquare}" Width="36" Height="36" Margin="8,0,0,0" ToolTip="刷新设备列表" AutomationProperties.Name="刷新设备列表">
                                 <Viewbox Width="15" Height="15"><Path Data="{StaticResource IcoRefresh}" Style="{StaticResource IcoPath}"/></Viewbox>
                             </Button>
@@ -2075,7 +2176,7 @@ function Show-FileManagerWindow($dev) {
                 </StackPanel>
             </Border>
 
-            <!-- 列 2: 预设直接平铺，单击仅填入目标包名。 -->
+            <!-- 列 2: 预设直接平铺，单击卡片填入包名，右侧可直接打开或开启日志抓包。 -->
             <Border Grid.Column="1" Background="{DynamicResource BrushPanelBg}" BorderBrush="{DynamicResource BrushBorderSoft}" BorderThickness="1" CornerRadius="8" Padding="14" Margin="6,0">
                 <StackPanel>
                     <DockPanel Margin="1,0,1,4">
@@ -2085,40 +2186,166 @@ function Show-FileManagerWindow($dev) {
                         <TextBlock Text="应用预设" Style="{StaticResource SectionTitle}"/>
                         <TextBlock Text="PRESETS" Style="{StaticResource SilkLabel}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                     </DockPanel>
-                    <TextBlock Text="单击填入目标，不会立即启动" Style="{StaticResource SectionHint}" Margin="1,0,0,10"/>
-                    <Border Height="1" Background="{DynamicResource BrushBorderSoft}" Margin="0,0,0,8"/>
+                    <TextBlock Text="单击卡片填入目标，右侧可直开或抓包" Style="{StaticResource SectionHint}" Margin="1,0,0,8"/>
+                    <Border Height="1" Background="{DynamicResource BrushBorderSoft}" Margin="0,0,0,7"/>
 
-                    <Button Name="BtnPreset1" Style="{StaticResource PresetButton}" ToolTip="填入 com.one.bp_tracker">
-                        <StackPanel>
-                            <TextBlock Text="血压计" FontSize="11.5" FontWeight="SemiBold"/>
-                            <TextBlock Text="com.one.bp_tracker" FontFamily="Consolas" FontSize="9" Foreground="{DynamicResource BrushTextMuted}" Margin="0,2,0,0"/>
-                        </StackPanel>
-                    </Button>
-                    <Button Name="BtnPreset2" Style="{StaticResource PresetButton}" ToolTip="填入 com.smartreader.simple.pdf">
-                        <StackPanel>
-                            <TextBlock Text="PDF 阅读器" FontSize="11.5" FontWeight="SemiBold"/>
-                            <TextBlock Text="com.smartreader.simple.pdf" FontFamily="Consolas" FontSize="9" Foreground="{DynamicResource BrushTextMuted}" Margin="0,2,0,0"/>
-                        </StackPanel>
-                    </Button>
-                    <Button Name="BtnPreset3" Style="{StaticResource PresetButton}" ToolTip="填入 com.smartbar.qrcreator">
-                        <StackPanel>
-                            <TextBlock Text="橙色 QR" FontSize="11.5" FontWeight="SemiBold"/>
-                            <TextBlock Text="com.smartbar.qrcreator" FontFamily="Consolas" FontSize="9" Foreground="{DynamicResource BrushTextMuted}" Margin="0,2,0,0"/>
-                        </StackPanel>
-                    </Button>
-                    <Button Name="BtnPreset4" Style="{StaticResource PresetButton}" ToolTip="填入 com.quickscan.qrcode">
-                        <StackPanel>
-                            <TextBlock Text="绿色 QR" FontSize="11.5" FontWeight="SemiBold"/>
-                            <TextBlock Text="com.quickscan.qrcode" FontFamily="Consolas" FontSize="9" Foreground="{DynamicResource BrushTextMuted}" Margin="0,2,0,0"/>
-                        </StackPanel>
-                    </Button>
-                    <Button Name="BtnPreset5" Style="{StaticResource PresetButton}" ToolTip="填入 com.simplescan.qrcode.purple">
-                        <StackPanel>
-                            <TextBlock Text="紫色 QR" FontSize="11.5" FontWeight="SemiBold"/>
-                            <TextBlock Text="com.simplescan.qrcode.purple" FontFamily="Consolas" FontSize="9" Foreground="{DynamicResource BrushTextMuted}" Margin="0,2,0,0"/>
-                        </StackPanel>
-                    </Button>
-                    <TextBlock Text="包名可在顶部继续编辑，回车即可打开。" Style="{StaticResource SectionHint}" Margin="2,10,0,0"/>
+                    <Grid Margin="0,2,0,2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Name="BtnPreset1" Style="{StaticResource PresetButton}" Margin="0" ToolTip="填入 com.one.bp_tracker">
+                            <StackPanel>
+                                <TextBlock Text="血压计" FontSize="11.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Name="TxtPresetPkg1" Text="com.one.bp_tracker" FontFamily="Consolas" FontSize="9" Foreground="{DynamicResource BrushTextMuted}" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="1" Name="BtnPresetOpen1" Style="{StaticResource PresetActionButton}" ToolTip="切换并打开应用">
+                            <StackPanel Orientation="Horizontal">
+                                <Viewbox Width="11" Height="11" Margin="0,0,3,0"><Path Data="{StaticResource IcoLaunch}" Style="{StaticResource IcoPath}"/></Viewbox>
+                                <TextBlock Text="打开"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="2" Name="BtnPresetLog1" Style="{StaticResource PresetActionButton}" ToolTip="切换并开启应用日志抓包">
+                            <StackPanel Orientation="Horizontal">
+                                <Viewbox Width="11" Height="11" Margin="0,0,3,0"><Path Data="{StaticResource IcoFileText}" Style="{StaticResource IcoPath}"/></Viewbox>
+                                <TextBlock Text="抓包"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <Grid Margin="0,2,0,2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Name="BtnPreset2" Style="{StaticResource PresetButton}" Margin="0" ToolTip="填入 com.smartreader.simple.pdf">
+                            <StackPanel>
+                                <TextBlock Text="PDF 阅读器" FontSize="11.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Name="TxtPresetPkg2" Text="com.smartreader.simple.pdf" FontFamily="Consolas" FontSize="9" Foreground="{DynamicResource BrushTextMuted}" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="1" Name="BtnPresetOpen2" Style="{StaticResource PresetActionButton}" ToolTip="切换并打开应用">
+                            <StackPanel Orientation="Horizontal">
+                                <Viewbox Width="11" Height="11" Margin="0,0,3,0"><Path Data="{StaticResource IcoLaunch}" Style="{StaticResource IcoPath}"/></Viewbox>
+                                <TextBlock Text="打开"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="2" Name="BtnPresetLog2" Style="{StaticResource PresetActionButton}" ToolTip="切换并开启应用日志抓包">
+                            <StackPanel Orientation="Horizontal">
+                                <Viewbox Width="11" Height="11" Margin="0,0,3,0"><Path Data="{StaticResource IcoFileText}" Style="{StaticResource IcoPath}"/></Viewbox>
+                                <TextBlock Text="抓包"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <Grid Margin="0,2,0,2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Name="BtnPreset3" Style="{StaticResource PresetButton}" Margin="0" ToolTip="填入 com.smartbar.qrcreator">
+                            <StackPanel>
+                                <TextBlock Text="橙色 QR" FontSize="11.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Name="TxtPresetPkg3" Text="com.smartbar.qrcreator" FontFamily="Consolas" FontSize="9" Foreground="{DynamicResource BrushTextMuted}" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="1" Name="BtnPresetOpen3" Style="{StaticResource PresetActionButton}" ToolTip="切换并打开应用">
+                            <StackPanel Orientation="Horizontal">
+                                <Viewbox Width="11" Height="11" Margin="0,0,3,0"><Path Data="{StaticResource IcoLaunch}" Style="{StaticResource IcoPath}"/></Viewbox>
+                                <TextBlock Text="打开"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="2" Name="BtnPresetLog3" Style="{StaticResource PresetActionButton}" ToolTip="切换并开启应用日志抓包">
+                            <StackPanel Orientation="Horizontal">
+                                <Viewbox Width="11" Height="11" Margin="0,0,3,0"><Path Data="{StaticResource IcoFileText}" Style="{StaticResource IcoPath}"/></Viewbox>
+                                <TextBlock Text="抓包"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <Grid Margin="0,2,0,2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Name="BtnPreset4" Style="{StaticResource PresetButton}" Margin="0" ToolTip="填入 com.quickscan.qrcode">
+                            <StackPanel>
+                                <TextBlock Text="绿色 QR" FontSize="11.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Name="TxtPresetPkg4" Text="com.quickscan.qrcode" FontFamily="Consolas" FontSize="9" Foreground="{DynamicResource BrushTextMuted}" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="1" Name="BtnPresetOpen4" Style="{StaticResource PresetActionButton}" ToolTip="切换并打开应用">
+                            <StackPanel Orientation="Horizontal">
+                                <Viewbox Width="11" Height="11" Margin="0,0,3,0"><Path Data="{StaticResource IcoLaunch}" Style="{StaticResource IcoPath}"/></Viewbox>
+                                <TextBlock Text="打开"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="2" Name="BtnPresetLog4" Style="{StaticResource PresetActionButton}" ToolTip="切换并开启应用日志抓包">
+                            <StackPanel Orientation="Horizontal">
+                                <Viewbox Width="11" Height="11" Margin="0,0,3,0"><Path Data="{StaticResource IcoFileText}" Style="{StaticResource IcoPath}"/></Viewbox>
+                                <TextBlock Text="抓包"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <Grid Margin="0,2,0,2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Name="BtnPreset5" Style="{StaticResource PresetButton}" Margin="0" ToolTip="填入 com.simplescan.qrcode.purple">
+                            <StackPanel>
+                                <TextBlock Text="紫色 QR" FontSize="11.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Name="TxtPresetPkg5" Text="com.simplescan.qrcode.purple" FontFamily="Consolas" FontSize="9" Foreground="{DynamicResource BrushTextMuted}" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="1" Name="BtnPresetOpen5" Style="{StaticResource PresetActionButton}" ToolTip="切换并打开应用">
+                            <StackPanel Orientation="Horizontal">
+                                <Viewbox Width="11" Height="11" Margin="0,0,3,0"><Path Data="{StaticResource IcoLaunch}" Style="{StaticResource IcoPath}"/></Viewbox>
+                                <TextBlock Text="打开"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="2" Name="BtnPresetLog5" Style="{StaticResource PresetActionButton}" ToolTip="切换并开启应用日志抓包">
+                            <StackPanel Orientation="Horizontal">
+                                <Viewbox Width="11" Height="11" Margin="0,0,3,0"><Path Data="{StaticResource IcoFileText}" Style="{StaticResource IcoPath}"/></Viewbox>
+                                <TextBlock Text="抓包"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <Grid Margin="0,2,0,2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Name="BtnPreset6" Style="{StaticResource PresetButton}" Margin="0" ToolTip="填入 com.easy.gallery.management">
+                            <StackPanel>
+                                <TextBlock Text="图库" FontSize="11.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Name="TxtPresetPkg6" Text="com.easy.gallery.management" FontFamily="Consolas" FontSize="9" Foreground="{DynamicResource BrushTextMuted}" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="1" Name="BtnPresetOpen6" Style="{StaticResource PresetActionButton}" ToolTip="切换并打开应用">
+                            <StackPanel Orientation="Horizontal">
+                                <Viewbox Width="11" Height="11" Margin="0,0,3,0"><Path Data="{StaticResource IcoLaunch}" Style="{StaticResource IcoPath}"/></Viewbox>
+                                <TextBlock Text="打开"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="2" Name="BtnPresetLog6" Style="{StaticResource PresetActionButton}" ToolTip="切换并开启应用日志抓包">
+                            <StackPanel Orientation="Horizontal">
+                                <Viewbox Width="11" Height="11" Margin="0,0,3,0"><Path Data="{StaticResource IcoFileText}" Style="{StaticResource IcoPath}"/></Viewbox>
+                                <TextBlock Text="抓包"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <TextBlock Text="包名可在顶部继续编辑，回车即可打开。" Style="{StaticResource SectionHint}" Margin="2,8,0,0"/>
                 </StackPanel>
             </Border>
 
@@ -2173,18 +2400,18 @@ function Show-FileManagerWindow($dev) {
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Margin="0,0,5,0">
-                            <TextBlock Text="无线 IP（留空自动获取）" Style="{StaticResource FieldLabel}"/>
-                            <TextBox Name="TxtWirelessIp" Height="34" VerticalContentAlignment="Center" ToolTip="设备 IP；留空时自动读取当前设备 IP"/>
+                            <TextBlock Text="无线 IP（自动刷新 / 手动输入）" Style="{StaticResource FieldLabel}"/>
+                            <TextBox Name="TxtWirelessIp" Height="34" VerticalContentAlignment="Center" ToolTip="切换设备时自动刷新 IP；无设备连接时可手动输入 IP（支持 IP:端口）"/>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Margin="5,0,0,0">
                             <TextBlock Text="端口" Style="{StaticResource FieldLabel}"/>
                             <TextBox Name="TxtWirelessPort" Text="5555" Height="34" VerticalContentAlignment="Center" ToolTip="无线调试端口，默认 5555"/>
                         </StackPanel>
                     </Grid>
-                    <Button Name="BtnEnableWireless" Style="{StaticResource FlatCmdButton}" ToolTip="设置无线调试端口并连接指定设备">
+                    <Button Name="BtnEnableWireless" Style="{StaticResource FlatCmdButton}" ToolTip="已连接设备时先开启无线端口再连接；无设备连接时直接按 IP 和端口连接">
                         <StackPanel Orientation="Horizontal">
                             <Viewbox Width="14" Height="14" Margin="0,0,8,0"><Path Data="{StaticResource IcoWifi}" Style="{StaticResource IcoPath}"/></Viewbox>
-                            <TextBlock Text="开启并连接无线调试"/>
+                            <TextBlock Name="TxtEnableWirelessBtn" Text="开启并连接无线调试"/>
                         </StackPanel>
                     </Button>
                 </StackPanel>
@@ -2212,16 +2439,16 @@ function Show-FileManagerWindow($dev) {
 
                     <Grid Margin="0,6,0,5">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="1.35*"/>
+                            <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Margin="0,0,5,0">
+                        <StackPanel Grid.Column="0" Margin="0,0,3,0">
                             <TextBlock Text="日期（YYYY-MM-DD）" Style="{StaticResource FieldLabel}"/>
                             <TextBox Name="TxtDeviceDate" Height="32" VerticalContentAlignment="Center" FontFamily="Consolas" ToolTip="完整日期，用于修改设备完整时间"/>
                         </StackPanel>
-                        <StackPanel Grid.Column="1" Margin="5,0,0,0">
+                        <StackPanel Grid.Column="1" Margin="3,0,0,0">
                             <TextBlock Text="时间（HH:mm）" Style="{StaticResource FieldLabel}"/>
-                            <TextBox Name="TxtDeviceTime" Height="32" VerticalContentAlignment="Center" FontFamily="Consolas" ToolTip="24 小时制时间，例如 14:30"/>
+                            <TextBox Name="TxtDeviceTime" Height="32" VerticalContentAlignment="Center" FontFamily="Consolas" ToolTip="24 小时制时间，例如 14:30；小时输入 0-9 时自动按 00-09 处理"/>
                         </StackPanel>
                     </Grid>
                     <Grid Margin="0,1,0,1">
@@ -2280,14 +2507,20 @@ function Show-FileManagerWindow($dev) {
                             </StackPanel>
                         </Button>
                     </Grid>
+                    <Button Name="BtnClearPlayData" Style="{StaticResource DangerCmdButton}" ToolTip="清除 Play 商店全部应用数据，执行前需要确认">
+                        <StackPanel Orientation="Horizontal">
+                            <Viewbox Width="14" Height="14" Margin="0,0,8,0"><Path Data="{StaticResource IcoAlert}" Style="{StaticResource IcoPath}"/></Viewbox>
+                            <TextBlock Text="清除 Play 商店数据"/>
+                        </StackPanel>
+                    </Button>
 
                     <TextBlock Text="网页链接" Style="{StaticResource FieldLabel}" Margin="1,7,0,5"/>
-                    <Grid Margin="0,0,0,5">
+                    <Grid Margin="0,0,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBox Grid.Column="0" Name="TxtBrowserUrl" Text="https://" Height="34" VerticalContentAlignment="Center" ToolTip="输入要在设备浏览器中打开的网址"/>
+                        <TextBox Grid.Column="0" Name="TxtBrowserUrl" Height="34" VerticalContentAlignment="Center" ToolTip="输入要在设备浏览器中打开的网址（留空时自动读取剪贴板中的网页链接）"/>
                         <Button Grid.Column="1" Name="BtnOpenBrowserUrl" Style="{StaticResource FlatCmdButton}" Height="34" Margin="6,0,0,0" ToolTip="在设备默认浏览器中打开上方链接">
                             <StackPanel Orientation="Horizontal">
                                 <Viewbox Width="13" Height="13" Margin="0,0,5,0"><Path Data="{StaticResource IcoLink}" Style="{StaticResource IcoPath}"/></Viewbox>
@@ -2295,12 +2528,6 @@ function Show-FileManagerWindow($dev) {
                             </StackPanel>
                         </Button>
                     </Grid>
-                    <Button Name="BtnClearPlayData" Style="{StaticResource DangerCmdButton}" ToolTip="清除 Play 商店全部应用数据，执行前需要确认">
-                        <StackPanel Orientation="Horizontal">
-                            <Viewbox Width="14" Height="14" Margin="0,0,8,0"><Path Data="{StaticResource IcoAlert}" Style="{StaticResource IcoPath}"/></Viewbox>
-                            <TextBlock Text="清除 Play 商店数据"/>
-                        </StackPanel>
-                    </Button>
                 </StackPanel>
             </Border>
         </Grid>
@@ -2379,12 +2606,6 @@ $btnClearApp = $window.FindName('BtnClearApp')
 $btnKillApp = $window.FindName('BtnKillApp')
 $btnUninstallApp = $window.FindName('BtnUninstallApp')
 
-$btnPreset1 = $window.FindName('BtnPreset1')
-$btnPreset2 = $window.FindName('BtnPreset2')
-$btnPreset3 = $window.FindName('BtnPreset3')
-$btnPreset4 = $window.FindName('BtnPreset4')
-$btnPreset5 = $window.FindName('BtnPreset5')
-
 $btnOpenFileManager = $window.FindName('BtnOpenFileManager')
 $btnStartMirror = $window.FindName('BtnStartMirror')
 $btnTurnOffCurrent = $window.FindName('BtnTurnOffCurrent')
@@ -2407,11 +2628,16 @@ $btnOpenBrowserUrl = $window.FindName('BtnOpenBrowserUrl')
 $txtDeviceStatus = $window.FindName('TxtDeviceStatus')
 $txtWirelessIp = $window.FindName('TxtWirelessIp')
 $txtWirelessPort = $window.FindName('TxtWirelessPort')
+$txtEnableWirelessBtn = $window.FindName('TxtEnableWirelessBtn')
 $txtDeviceDate = $window.FindName('TxtDeviceDate')
 $txtDeviceTime = $window.FindName('TxtDeviceTime')
 $txtBrowserUrl = $window.FindName('TxtBrowserUrl')
 $txtDeviceDate.Text = (Get-Date).ToString('yyyy-MM-dd')
 $txtDeviceTime.Text = (Get-Date).ToString('HH:mm')
+$script:isRefreshingDevices = $false
+$script:isWaitingAppLaunch = $false
+$script:isWindowClosing = $false
+$window.Add_Closing({ $script:isWindowClosing = $true })
 
 function Log([string]$msg) {
     $time = (Get-Date).ToString('HH:mm:ss')
@@ -2423,25 +2649,68 @@ function Get-CurrentSelectedDevice {
     return $cmbDevices.SelectedItem
 }
 
-function Refresh-DeviceList {
-    $currentSerial = if ($cmbDevices.SelectedItem) { $cmbDevices.SelectedItem.Serial } else { $null }
+function Update-WirelessButtonState([bool]$hasDevice) {
+    if (-not $txtEnableWirelessBtn) { return }
+    if ($hasDevice) {
+        $txtEnableWirelessBtn.Text = '开启并连接无线调试'
+    } else {
+        $txtEnableWirelessBtn.Text = '连接无线设备'
+    }
+}
+
+function Resolve-DeviceWirelessIp($dev) {
+    if (-not $dev) { return $null }
+    $ep = Get-WirelessEndpointFromSerial $dev.Serial
+    if ($ep -and $ep.Ip -ne '127.0.0.1') {
+        return $ep.Ip
+    }
+    return (Get-DeviceIp $dev.Serial)
+}
+
+function Refresh-WirelessIp($dev) {
+    if (-not $dev) { return }
+    $ip = Resolve-DeviceWirelessIp $dev
+    if ($ip) {
+        $txtWirelessIp.Text = $ip
+        Log ('已刷新设备无线 IP: ' + $ip)
+    } else {
+        $txtWirelessIp.Text = ''
+        Log '未能自动获取当前设备无线 IP（可能未连接 Wi-Fi），已清空 IP 输入框。'
+    }
+}
+
+function Refresh-DeviceList([string]$PreferredSerial = $null) {
+    $previousSerial = if ($cmbDevices.SelectedItem) { $cmbDevices.SelectedItem.Serial } else { $null }
+    $targetSerial = if ($PreferredSerial) { $PreferredSerial } else { $previousSerial }
     $devices = Get-Devices
-    $cmbDevices.ItemsSource = $devices
+
+    $script:isRefreshingDevices = $true
     $cmbDevices.DisplayMemberPath = 'DisplayName'
+    $cmbDevices.ItemsSource = $devices
+    $cmbDevices.SelectedIndex = -1
+    $script:isRefreshingDevices = $false
 
     if ($devices.Count -gt 0) {
         $found = $null
-        if ($currentSerial) {
-            $found = $devices | Where-Object { $_.Serial -eq $currentSerial } | Select-Object -First 1
+        if ($targetSerial) {
+            $found = $devices | Where-Object { $_.Serial -eq $targetSerial } | Select-Object -First 1
+        }
+        if (-not $found -and $PreferredSerial -and $previousSerial) {
+            $found = $devices | Where-Object { $_.Serial -eq $previousSerial } | Select-Object -First 1
         }
         if ($found) {
             $cmbDevices.SelectedItem = $found
         } else {
             $cmbDevices.SelectedIndex = 0
         }
+        Update-WirelessButtonState $true
         $txtDeviceStatus.Text = ($devices.Count.ToString() + ' 台设备在线')
         Log ('已检测到 ' + $devices.Count + ' 台设备。')
     } else {
+        if ($previousSerial) {
+            $txtWirelessIp.Text = ''
+        }
+        Update-WirelessButtonState $false
         $txtDeviceStatus.Text = '未检测到设备'
         $window.Title = 'DroidOps · Android 调试工作台'
         Log '未检测到已连接的 ADB 设备。'
@@ -2483,11 +2752,16 @@ $btnRefreshDevices.Add_Click({
 })
 
 $cmbDevices.Add_SelectionChanged({
+    if ($script:isRefreshingDevices) { return }
     $dev = Get-CurrentSelectedDevice
     if ($dev) {
+        Update-WirelessButtonState $true
         $window.Title = $dev.Model + ' · ' + $dev.TypeStr + ' | DroidOps'
         $txtDeviceStatus.Text = $dev.TypeStr + ' · 已连接'
+        Refresh-WirelessIp $dev
         Refresh-ForegroundApp
+    } else {
+        Update-WirelessButtonState $false
     }
 })
 
@@ -2503,12 +2777,104 @@ $txtPackage.Add_KeyDown({
     }
 })
 
-$btnOpenApp.Add_Click({
+function Select-PresetPackage([string]$pkg) {
+    $txtPackage.Text = $pkg
+    Log ('切换为预设: ' + $pkg)
+}
+
+function Start-TargetApp([string]$TargetPackage = '') {
     $dev = Get-CurrentSelectedDevice
-    $pkg = $txtPackage.Text.Trim()
-    if (-not $dev -or -not $pkg) { Log '请确保已选设备和有效包名！'; return }
+    $pkg = if ($TargetPackage) { $TargetPackage.Trim() } else { $txtPackage.Text.Trim() }
+    if (-not $dev -or -not $pkg) {
+        Log '请确保已选设备和有效包名！'
+        return $false
+    }
     $ret = Invoke-CmdText ('adb -s ' + $dev.Serial + ' shell monkey -p ' + $pkg + ' -c android.intent.category.LAUNCHER 1')
     Log ('打开应用 ' + $pkg + ' -> ' + $ret.Output)
+    if ($ret.ExitCode -ne 0 -or $ret.Output -match 'monkey aborted|No activities found') {
+        return $false
+    }
+    return $true
+}
+
+function Get-AppRunningPid([string]$serial, [string]$pkg) {
+    $pidResult = (adb -s $serial shell pidof -s $pkg 2>$null | Out-String).Trim()
+    if ($pidResult -match '^\d+$') {
+        return $pidResult
+    }
+    if ($pidResult -match '^(\d+)\s+\d+') {
+        return $matches[1]
+    }
+    return $null
+}
+
+function Start-AppLogCapture([string]$TargetPackage = '', [switch]$LaunchIfNotRunning) {
+    $dev = Get-CurrentSelectedDevice
+    $pkg = if ($TargetPackage) { $TargetPackage.Trim() } else { $txtPackage.Text.Trim() }
+    if (-not $dev -or -not $pkg) {
+        Log '请确保已选设备和有效包名！'
+        return
+    }
+
+    $pidResult = Get-AppRunningPid $dev.Serial $pkg
+    $shouldClearBeforeLogcat = $true
+
+    if (-not $pidResult) {
+        if (-not $LaunchIfNotRunning) {
+            Log '获取应用PID失败，请确保该应用正在运行！'
+            return
+        }
+        if ($script:isWaitingAppLaunch) {
+            Log '正在等待其他应用启动抓包，请稍候...'
+            return
+        }
+
+        $script:isWaitingAppLaunch = $true
+        try {
+            Log ('应用 ' + $pkg + ' 当前未运行，正在打开应用并监听启动后抓包...')
+            [System.Windows.Forms.Application]::DoEvents()
+            # 在拉起应用前清空日志缓存，确保不丢失冷启动初期日志
+            adb -s $dev.Serial logcat -c 2>$null
+
+            if (-not (Start-TargetApp $pkg)) {
+                Log ('启动应用 ' + $pkg + ' 失败，已取消抓包。')
+                return
+            }
+
+            $shouldClearBeforeLogcat = $false
+            for ($attempt = 0; $attempt -lt 75; $attempt++) {
+                if ($script:isWindowClosing) { return }
+                [System.Windows.Forms.Application]::DoEvents()
+                $pidResult = Get-AppRunningPid $dev.Serial $pkg
+                if ($pidResult) { break }
+                Start-Sleep -Milliseconds 200
+            }
+        } finally {
+            $script:isWaitingAppLaunch = $false
+        }
+
+        if (-not $pidResult) {
+            Log ('等待应用 ' + $pkg + ' 启动超时，未能获取 PID。')
+            return
+        }
+        Log ('检测到应用已启动 (PID: ' + $pidResult + ')，开始抓包...')
+    }
+
+    $timestamp = Get-Date -Format 'yyyyMMddHHmmss'
+    $logDir = 'E:\workspace\data\log'
+    if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
+    $ver = Get-AppVersion $dev.Serial $pkg
+    $fileName = $dev.Model + '-' + $dev.OS + '-' + $pkg + '-' + $ver + '-' + $timestamp + '.txt'
+    $logPath = Join-Path $logDir $fileName
+    $windowTitle = if ($dev.Model -and $dev.Model -ne 'unknown') { $dev.Model + ' - APP日志' } else { $dev.Serial + ' - APP日志' }
+    $logcatPrefix = if ($shouldClearBeforeLogcat) { 'adb -s ' + $dev.Serial + ' logcat -c && ' } else { '' }
+    $logCmd = $logcatPrefix + 'adb -s ' + $dev.Serial + ' logcat --pid=' + $pidResult + ' -v time > "' + $logPath + '"'
+    Start-Process cmd -ArgumentList '/k', ('title ' + $windowTitle + ' & echo 日志正在写入: ' + $logPath + ' & echo 按 Ctrl+C 停止日志采集... & ' + $logCmd)
+    Log ('应用日志采集已在新窗口启动: ' + $logPath)
+}
+
+$btnOpenApp.Add_Click({
+    Start-TargetApp | Out-Null
 })
 
 # ═══ 本地应用安装 (OpenFileDialog 多选 + ADB install) ═══
@@ -2575,15 +2941,46 @@ $btnUninstallApp.Add_Click({
     if (Show-ConfirmDialog -message ('将从设备 ' + $dev.Model + ' 卸载「' + $pkg + '」，应用及其数据将被移除。') -actionText '确认卸载' -owner $window) {
         $ret = Invoke-CmdText ('adb -s ' + $dev.Serial + ' uninstall ' + $pkg)
         Log ('卸载应用 -> ' + $ret.Output)
-        Refresh-ForegroundApp
     }
 })
 
-$btnPreset1.Add_Click({ $txtPackage.Text = $preset1; Log ('切换为预设: ' + $preset1) })
-$btnPreset2.Add_Click({ $txtPackage.Text = $preset2; Log ('切换为预设: ' + $preset2) })
-$btnPreset3.Add_Click({ $txtPackage.Text = $preset3; Log ('切换为预设: ' + $preset3) })
-$btnPreset4.Add_Click({ $txtPackage.Text = $preset4; Log ('切换为预设: ' + $preset4) })
-$btnPreset5.Add_Click({ $txtPackage.Text = $preset5; Log ('切换为预设: ' + $preset5) })
+$presetPackages = @($preset1, $preset2, $preset3, $preset4, $preset5, $preset6)
+for ($i = 0; $i -lt $presetPackages.Count; $i++) {
+    $pkg = $presetPackages[$i]
+    $idx = $i + 1
+    $btnSelect = $window.FindName('BtnPreset' + $idx)
+    $txtPkg    = $window.FindName('TxtPresetPkg' + $idx)
+    $btnOpen   = $window.FindName('BtnPresetOpen' + $idx)
+    $btnLog    = $window.FindName('BtnPresetLog' + $idx)
+
+    if ($txtPkg) { $txtPkg.Text = $pkg }
+    if ($btnSelect) {
+        $btnSelect.Tag = $pkg
+        $btnSelect.ToolTip = '填入 ' + $pkg
+        $btnSelect.Add_Click({
+            param($s, $e)
+            Select-PresetPackage $s.Tag
+        })
+    }
+    if ($btnOpen) {
+        $btnOpen.Tag = $pkg
+        $btnOpen.ToolTip = '切换为 ' + $pkg + ' 并直接打开应用'
+        $btnOpen.Add_Click({
+            param($s, $e)
+            Select-PresetPackage $s.Tag
+            Start-TargetApp $s.Tag | Out-Null
+        })
+    }
+    if ($btnLog) {
+        $btnLog.Tag = $pkg
+        $btnLog.ToolTip = '切换为 ' + $pkg + ' 并开启应用日志抓包（未运行时自动打开并监听启动）'
+        $btnLog.Add_Click({
+            param($s, $e)
+            Select-PresetPackage $s.Tag
+            Start-AppLogCapture -TargetPackage $s.Tag -LaunchIfNotRunning
+        })
+    }
+}
 
 $btnOpenFileManager.Add_Click({
     $dev = Get-CurrentSelectedDevice
@@ -2629,40 +3026,100 @@ $btnTurnOffAll.Add_Click({
     }
 })
 
-$btnEnableWireless.Add_Click({
+function Connect-WirelessTarget([string]$target, [switch]$SelectTarget) {
+    Log ('正在连接无线设备 ' + $target + ' ...')
+    [System.Windows.Forms.Application]::DoEvents()
+    $connectRes = (adb connect $target 2>&1 | Out-String).TrimEnd()
+    Log ('连接无线设备 ' + $target + ': ' + $connectRes)
+    if ($SelectTarget) {
+        Refresh-DeviceList -PreferredSerial $target
+    } else {
+        Refresh-DeviceList
+    }
+}
+
+function Invoke-WirelessConnect {
     $dev = Get-CurrentSelectedDevice
-    if (-not $dev) { Log '请先选择设备！'; return }
 
     $ip = $txtWirelessIp.Text.Trim()
-    if (-not $ip) {
-        $ip = Get-DeviceIp $dev.Serial
-        if ($ip) { $txtWirelessIp.Text = $ip }
+    $port = $txtWirelessPort.Text.Trim()
+
+    # 支持直接在 IP 输入框粘贴 IP:端口
+    if ($ip -match '^(\d{1,3}(?:\.\d{1,3}){3}):(\d{1,5})$') {
+        $ip = $matches[1]
+        $port = $matches[2]
+        $txtWirelessIp.Text = $ip
+        $txtWirelessPort.Text = $port
     }
+
     if (-not $ip) {
-        Log '未能自动获取设备 IP，请直接在“无线 IP”输入框中填写后重试。'
-        return
+        if ($dev) {
+            Refresh-WirelessIp $dev
+            $ip = $txtWirelessIp.Text.Trim()
+            if (-not $ip) {
+                Log '未能自动获取设备 IP，请直接在“无线 IP”输入框中填写后重试。'
+                return
+            }
+        } else {
+            Log '当前未连接设备，请在“无线 IP”输入框中填写设备 IP（支持 IP:端口）后重试。'
+            return
+        }
     }
-    $parsedIp = $null
-    if (-not [System.Net.IPAddress]::TryParse($ip, [ref]$parsedIp)) {
+
+    if (-not (Test-ValidIPv4 $ip)) {
         Log '无线 IP 格式不正确，请输入例如 192.168.1.100 的地址。'
         return
     }
 
-    $port = $txtWirelessPort.Text.Trim()
     $portNumber = 0
     if (-not [int]::TryParse($port, [ref]$portNumber) -or $portNumber -lt 1 -or $portNumber -gt 65535) {
         Log '无线调试端口不正确，请输入 1–65535 之间的数字。'
         return
     }
 
-    $tcpipRes = (adb -s $dev.Serial tcpip $portNumber 2>&1 | Out-String).TrimEnd()
-    Start-Sleep -Seconds 1
     $target = $ip + ':' + $portNumber
-    $connectRes = (adb connect $target 2>&1 | Out-String).TrimEnd()
+    if (-not $dev) {
+        Connect-WirelessTarget -target $target -SelectTarget
+        return
+    }
+
+    $devEp = Get-WirelessEndpointFromSerial $dev.Serial
+    if ($devEp -and $devEp.Ip -ne '127.0.0.1') {
+        if ($ip -ne $devEp.Ip -or $portNumber -eq $devEp.Port) {
+            Connect-WirelessTarget -target $target -SelectTarget
+            return
+        }
+    } else {
+        $devIps = Get-DeviceAllIps $dev.Serial
+        $isSameDeviceIp = ($devIps.Count -eq 0) -or ($ip -in $devIps)
+        if (-not $isSameDeviceIp) {
+            Connect-WirelessTarget -target $target -SelectTarget
+            return
+        }
+    }
+
+    Log ('正在开启设备无线调试端口 ' + $portNumber + ' ...')
+    [System.Windows.Forms.Application]::DoEvents()
+    $tcpipRes = (adb -s $dev.Serial tcpip $portNumber 2>&1 | Out-String).TrimEnd()
     Log ('设置端口 ' + $portNumber + ': ' + $tcpipRes)
-    Log ('连接无线设备 ' + $target + ': ' + $connectRes)
-    Refresh-DeviceList
+    Start-Sleep -Seconds 1
+    Connect-WirelessTarget -target $target -SelectTarget:([bool]$devEp)
+}
+
+$btnEnableWireless.Add_Click({
+    Invoke-WirelessConnect
 })
+
+foreach ($wirelessInput in @($txtWirelessIp, $txtWirelessPort)) {
+    if ($wirelessInput) {
+        $wirelessInput.Add_KeyDown({
+            param($s, $e)
+            if ($e.Key -eq [System.Windows.Input.Key]::Enter) {
+                Invoke-WirelessConnect
+            }
+        })
+    }
+}
 
 $btnEnableFirebase.Add_Click({
     $dev = Get-CurrentSelectedDevice
@@ -2680,24 +3137,7 @@ $btnDisableFirebase.Add_Click({
 })
 
 $btnAppLog.Add_Click({
-    $dev = Get-CurrentSelectedDevice
-    $pkg = $txtPackage.Text.Trim()
-    if (-not $dev -or -not $pkg) { Log '请确保已选设备和有效包名！'; return }
-    $pidResult = (adb -s $dev.Serial shell pidof -s $pkg 2>$null | Out-String).Trim()
-    if (-not $pidResult -or $pidResult -match '\s') {
-        Log '获取应用PID失败，请确保该应用正在运行！'
-        return
-    }
-    $timestamp = Get-Date -Format 'yyyyMMddHHmmss'
-    $logDir = 'E:\workspace\data\log'
-    if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
-    $ver = Get-AppVersion $dev.Serial $pkg
-    $fileName = $dev.Model + '-' + $dev.OS + '-' + $pkg + '-' + $ver + '-' + $timestamp + '.txt'
-    $logPath = Join-Path $logDir $fileName
-    $windowTitle = if ($dev.Model -and $dev.Model -ne 'unknown') { $dev.Model + ' - APP日志' } else { $dev.Serial + ' - APP日志' }
-    $logCmd = 'adb -s ' + $dev.Serial + ' logcat -c && adb -s ' + $dev.Serial + ' logcat --pid=' + $pidResult + ' -v time > "' + $logPath + '"'
-    Start-Process cmd -ArgumentList '/k', ('title ' + $windowTitle + ' & echo 日志正在写入: ' + $logPath + ' & echo 按 Ctrl+C 停止日志采集... & ' + $logCmd)
-    Log ('应用日志采集已在新窗口启动: ' + $logPath)
+    Start-AppLogCapture
 })
 
 $btnGlobalLog.Add_Click({
@@ -2716,24 +3156,37 @@ $btnGlobalLog.Add_Click({
     Log ('全局日志采集已在新窗口启动: ' + $logPath)
 })
 
+function Resolve-DeviceTimeInput([string]$timeText) {
+    $trimmed = if ($timeText) { $timeText.Trim() } else { '' }
+    if ($trimmed -match '^([0-9]|[01]\d|2[0-3]):([0-5]\d)$') {
+        $hour = $matches[1].PadLeft(2, '0')
+        $minute = $matches[2]
+        return [pscustomobject]@{
+            Hour       = $hour
+            Minute     = $minute
+            Normalized = ($hour + ':' + $minute)
+        }
+    }
+    return $null
+}
+
 $btnSetTodayTime.Add_Click({
     $dev = Get-CurrentSelectedDevice
     if (-not $dev) { Log '请先选择设备！'; return }
-    $t = $txtDeviceTime.Text.Trim()
-    if ($t -notmatch '^(?:[01]\d|2[0-3]):[0-5]\d$') {
-        Log '时间格式不正确，请在主窗口使用 HH:mm 格式，例如 14:30。'
+    $parsedTime = Resolve-DeviceTimeInput $txtDeviceTime.Text
+    if (-not $parsedTime) {
+        Log '时间格式不正确，请在主窗口使用 HH:mm（小时 0-9 自动补零），例如 14:30 或 9:30。'
         return
     }
+    $txtDeviceTime.Text = $parsedTime.Normalized
 
-    $hour = $t.Substring(0,2)
-    $minute = $t.Substring(3,2)
     $md = (adb -s $dev.Serial shell date +%m%d 2>$null | Out-String).Trim()
     $year = (adb -s $dev.Serial shell date +%Y 2>$null | Out-String).Trim()
     if ($md.Length -ne 4 -or -not $year) { Log '获取设备日期失败。'; return }
     $month = $md.Substring(0,2)
     $day = $md.Substring(2,2)
 
-    $res = Set-DeviceTime -serial $dev.Serial -year $year -month $month -day $day -hour $hour -minute $minute
+    $res = Set-DeviceTime -serial $dev.Serial -year $year -month $month -day $day -hour $parsedTime.Hour -minute $parsedTime.Minute
     Log $res.Message
 })
 
@@ -2741,14 +3194,15 @@ $btnSetFullTime.Add_Click({
     $dev = Get-CurrentSelectedDevice
     if (-not $dev) { Log '请先选择设备！'; return }
     $dateText = $txtDeviceDate.Text.Trim()
-    $timeText = $txtDeviceTime.Text.Trim()
-    if ($dateText -notmatch '^\d{4}-\d{2}-\d{2}$' -or $timeText -notmatch '^(?:[01]\d|2[0-3]):[0-5]\d$') {
-        Log '日期或时间格式不正确，请使用 YYYY-MM-DD 与 HH:mm 格式。'
+    $parsedTime = Resolve-DeviceTimeInput $txtDeviceTime.Text
+    if ($dateText -notmatch '^\d{4}-\d{2}-\d{2}$' -or -not $parsedTime) {
+        Log '日期或时间格式不正确，请使用 YYYY-MM-DD 与 HH:mm（小时 0-9 自动补零）格式。'
         return
     }
+    $txtDeviceTime.Text = $parsedTime.Normalized
 
     try {
-        $dt = [DateTime]::ParseExact(($dateText + ' ' + $timeText), 'yyyy-MM-dd HH:mm', [System.Globalization.CultureInfo]::InvariantCulture)
+        $dt = [DateTime]::ParseExact(($dateText + ' ' + $parsedTime.Normalized), 'yyyy-MM-dd HH:mm', [System.Globalization.CultureInfo]::InvariantCulture)
     } catch {
         Log '日期无效，请检查月份、日期与时间后重试。'
         return
@@ -2818,22 +3272,143 @@ $btnClearPlayData.Add_Click({
     Log ('清除 Play Store 应用数据 -> ' + $ret.Output)
 })
 
+$script:KnownWebTldSet = [System.Collections.Generic.HashSet[string]]::new([string[]]@(
+    # 常见通用顶级域与新顶级域
+    'com', 'cn', 'net', 'org', 'edu', 'gov', 'mil', 'int', 'info', 'biz', 'name', 'pro', 'mobi', 'tel', 'asia', 'jobs', 'travel', 'coop', 'aero', 'museum',
+    'xyz', 'top', 'vip', 'club', 'shop', 'store', 'site', 'online', 'website', 'web', 'tech', 'app', 'dev', 'ai', 'io', 'me', 'co', 'tv', 'cc',
+    'icu', 'cloud', 'live', 'wiki', 'blog', 'news', 'media', 'link', 'click', 'fun', 'work', 'ltd', 'inc', 'llc', 'wang', 'xin', 'ren', 'kim',
+    'space', 'zone', 'world', 'life', 'team', 'group', 'studio', 'design', 'art', 'game', 'games', 'play', 'video', 'music', 'photo', 'pics',
+    'social', 'chat', 'forum', 'community', 'support', 'help', 'center', 'service', 'services', 'solutions', 'systems', 'network', 'digital',
+    'data', 'code', 'software', 'tools', 'host', 'hosting', 'server', 'email', 'mail', 'box', 'pub', 'run', 'one', 'plus', 'red', 'blue', 'ink',
+    'company', 'agency', 'market', 'trade', 'sale', 'deals', 'buy', 'pay', 'money', 'cash', 'bank', 'finance', 'health', 'care', 'fit',
+    'home', 'house', 'land', 'city', 'town', 'place', 'guide', 'direct', 'express', 'go', 'today', 'now', 'show', 'press', 'review', 'tips',
+    'best', 'cool', 'win', 'lol', 'bid', 'date', 'download', 'faith', 'loan', 'party', 'science', 'stream', 'webcam', 'bar', 'cafe', 'coffee',
+    'gold', 'guru', 'hotel', 'law', 'love', 'pet', 'promo', 'rest', 'school', 'style', 'taxi', 'tours', 'watch', 'works', 'academy', 'audio',
+    'auto', 'beauty', 'build', 'cam', 'car', 'cars', 'cheap', 'clinic', 'coach', 'codes', 'college', 'cooking', 'coupons', 'courses', 'dance',
+    'delivery', 'doctor', 'domains', 'earth', 'education', 'energy', 'estate', 'events', 'expert', 'family', 'fans', 'farm', 'fashion', 'film',
+    'fitness', 'flowers', 'food', 'football', 'foundation', 'fyi', 'gallery', 'garden', 'gift', 'gifts', 'glass', 'global', 'golf', 'graphics',
+    'green', 'holiday', 'homes', 'hospital', 'industries', 'institute', 'international', 'investments', 'jewelry', 'kitchen', 'lawyer', 'legal',
+    'lighting', 'limited', 'luxury', 'marketing', 'menu', 'moda', 'mortgage', 'movie', 'ninja', 'partners', 'parts', 'photography', 'photos',
+    'pictures', 'pizza', 'poker', 'properties', 'property', 'racing', 'realty', 'recipes', 'rentals', 'repair', 'report', 'republican',
+    'reviews', 'rip', 'rocks', 'rodeo', 'sarl', 'security', 'shoes', 'singles', 'ski', 'solar', 'soy', 'supplies', 'supply', 'surgery', 'tax',
+    'technology', 'tennis', 'theater', 'tickets', 'tienda', 'tires', 'toys', 'training', 'university', 'vacations', 'vegas', 'ventures',
+    'vet', 'viajes', 'villas', 'vin', 'vision', 'vodka', 'vote', 'voto', 'voyage', 'wedding', 'wine', 'wtf', 'yoga',
+    # 常用国家与地区顶级域（及短链域名常见后缀）
+    'hk', 'tw', 'mo', 'jp', 'kr', 'sg', 'us', 'uk', 'de', 'fr', 'ca', 'au', 'eu', 'ru', 'nl', 'ch', 'se', 'no', 'fi', 'dk', 'es', 'it', 'pt',
+    'br', 'mx', 'ar', 'cl', 'in', 'id', 'th', 'vn', 'my', 'ph', 'pk', 'bd', 'ae', 'sa', 'tr', 'il', 'za', 'nz', 'ua', 'by', 'kz', 'uz',
+    'la', 'ws', 'bz', 'nu', 'fm', 'am', 'im', 'gg', 'ly', 'to', 'so', 'sx', 'vc', 'cx', 'gs', 'ac', 'pw', 'su', 're', 'tk', 'ml', 'ga', 'cf', 'gq',
+    'be', 'at', 'cz', 'gr', 'hu', 'ie', 'is', 'lu', 'lv', 'lt', 'ee', 'ro', 'bg', 'hr', 'si', 'sk', 'eg', 'ma', 'ng', 'ke', 'pe', 'ec', 'uy'
+), [System.StringComparer]::OrdinalIgnoreCase)
+
+$script:BarePackageExclusionTlds = [System.Collections.Generic.HashSet[string]]::new([string[]]@(
+    'com', 'cn', 'net', 'org', 'edu', 'gov', 'hk', 'tw', 'jp', 'kr', 'uk', 'us', 'de', 'fr', 'au', 'ca', 'sg', 'eu', 'ru', 'xyz', 'top', 'cc', 'tv', 'me', 'co', 'info', 'biz'
+), [System.StringComparer]::OrdinalIgnoreCase)
+
+function Test-BareClipboardUrl([string]$candidate) {
+    if (-not $candidate -or $candidate -match '\s') { return $false }
+
+    # 1. localhost(:port)(/...)
+    if ($candidate -match '^localhost(?::(?<port>\d{1,5}))?(?:[/?#]\S*)?$') {
+        if ($matches['port']) {
+            $p = 0
+            return ([int]::TryParse($matches['port'], [ref]$p) -and $p -ge 1 -and $p -le 65535)
+        }
+        return $true
+    }
+
+    # 2. IPv4 需带端口或路径（避免把纯设备局域网 IP 当成网页打开）
+    if ($candidate -match '^(?<ip>\d{1,3}(?:\.\d{1,3}){3})(?::(?<port>\d{1,5})(?:[/?#]\S*)?|[/?#]\S*)$') {
+        if (-not (Test-ValidIPv4 $matches['ip'])) { return $false }
+        if ($matches['port']) {
+            $p = 0
+            return ([int]::TryParse($matches['port'], [ref]$p) -and $p -ge 1 -and $p -le 65535)
+        }
+        return $true
+    }
+
+    # 3. 域名格式（www. 开头或匹配已知网站后缀）
+    if ($candidate -notmatch '^(?<host>(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,24})(?::(?<port>\d{1,5}))?(?<rest>[/?#]\S*)?$') {
+        return $false
+    }
+    if ($matches['port']) {
+        $p = 0
+        if (-not [int]::TryParse($matches['port'], [ref]$p) -or $p -lt 1 -or $p -gt 65535) { return $false }
+    }
+
+    $hostName = $matches['host']
+    $labels = $hostName.Split('.')
+    $tld = $labels[-1]
+    $hasPortOrPath = [bool]($matches['port'] -or $matches['rest'])
+
+    if ($labels[0] -ieq 'www') { return $true }
+    if (-not $script:KnownWebTldSet.Contains($tld)) { return $false }
+
+    # 防止无协议无路径的安卓包名（如 com.example.app / org.foo.pro）被误判为网页链接
+    if (-not $hasPortOrPath -and $labels.Count -ge 3 -and ($labels[0] -iin @('com', 'org', 'net', 'android', 'androidx', 'java', 'javax', 'kotlin', 'io'))) {
+        if (-not $script:BarePackageExclusionTlds.Contains($tld)) { return $false }
+    }
+
+    return $true
+}
+
+function Resolve-BrowserUrlFromText([string]$rawText, [switch]$RequireExplicitLink) {
+    $candidate = if ($rawText) { $rawText.Trim() } else { '' }
+    if (-not $candidate -or $candidate -eq 'https://' -or $candidate -eq 'http://') {
+        return $null
+    }
+    if ($RequireExplicitLink) {
+        if ($candidate -match '\s') { return $null }
+        if ($candidate -notmatch '^https?://[^\s]+$') {
+            if (-not (Test-BareClipboardUrl $candidate)) {
+                return $null
+            }
+            $candidate = 'https://' + $candidate
+        }
+    } elseif ($candidate -notmatch '^[a-zA-Z][a-zA-Z0-9+.-]*://') {
+        $candidate = 'https://' + $candidate
+    }
+
+    $uri = $null
+    if (-not [System.Uri]::TryCreate($candidate, [System.UriKind]::Absolute, [ref]$uri) -or $uri.Scheme -notin @('http', 'https') -or -not $uri.Host) {
+        return $null
+    }
+    return $uri.AbsoluteUri
+}
+
 $btnOpenBrowserUrl.Add_Click({
     $dev = Get-CurrentSelectedDevice
     if (-not $dev) { Log '请先选择设备！'; return }
-    $url = $txtBrowserUrl.Text.Trim()
-    if (-not $url -or $url -eq 'https://' -or $url -eq 'http://') {
-        Log '请先在主窗口“网页链接”输入框中填写网址。'
+
+    $rawInput = $txtBrowserUrl.Text.Trim()
+    $fromClipboard = (-not $rawInput -or $rawInput -eq 'https://' -or $rawInput -eq 'http://')
+    if ($fromClipboard) {
+        $clipText = ''
+        try {
+            if ([System.Windows.Clipboard]::ContainsText()) {
+                $clipText = [System.Windows.Clipboard]::GetText()
+            }
+        } catch {}
+        if (-not $clipText -or -not $clipText.Trim()) {
+            Log '请先在主窗口“网页链接”输入框中填写网址，或先复制网页链接。'
+            return
+        }
+        $resolvedUrl = Resolve-BrowserUrlFromText $clipText -RequireExplicitLink
+        if (-not $resolvedUrl) {
+            Log '网页链接输入框为空，且剪贴板内容不是有效的网页链接。'
+            return
+        }
+        $ret = Invoke-CmdText ('adb -s ' + $dev.Serial + ' shell am start -a android.intent.action.VIEW -d "' + $resolvedUrl + '"')
+        Log ('从剪贴板打开链接 (' + $resolvedUrl + ') -> ' + $ret.Output)
         return
     }
-    if ($url -notmatch '^[a-zA-Z][a-zA-Z0-9+.-]*://') { $url = 'https://' + $url }
-    $uri = $null
-    if (-not [System.Uri]::TryCreate($url, [System.UriKind]::Absolute, [ref]$uri) -or $uri.Scheme -notin @('http', 'https')) {
+
+    $resolvedUrl = Resolve-BrowserUrlFromText $rawInput
+    if (-not $resolvedUrl) {
         Log '网址格式不正确，目前支持 http 与 https 链接。'
         return
     }
-    $txtBrowserUrl.Text = $uri.AbsoluteUri
-    $ret = Invoke-CmdText ('adb -s ' + $dev.Serial + ' shell am start -a android.intent.action.VIEW -d "' + $uri.AbsoluteUri + '"')
+    $txtBrowserUrl.Text = $resolvedUrl
+    $ret = Invoke-CmdText ('adb -s ' + $dev.Serial + ' shell am start -a android.intent.action.VIEW -d "' + $resolvedUrl + '"')
     Log ('浏览器打开链接 -> ' + $ret.Output)
 })
 
